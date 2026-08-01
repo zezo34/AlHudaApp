@@ -585,15 +585,17 @@ export const AuthProvider = ({ children }) => {
   // -----------------------------
   // Reward wheel: تعريف الجوائز و منطق السحب
   // -----------------------------
-  const rewardDefinitions = [
-    // each reward has an id, label, type and weight (probability weight)
-    { id: 'points_small', label: '+10 نقاط', type: 'points', amount: 10, weight: 40 },
-    { id: 'points_medium', label: '+25 نقاط', type: 'points', amount: 25, weight: 25 },
-    { id: 'points_big', label: '+50 نقاط', type: 'points', amount: 50, weight: 10 },
-    { id: 'badge_new', label: 'وسام جديد ✨', type: 'badge', badgeId: 'starter-badge', weight: 8 },
-    { id: 'temp_profile_theme', label: 'تغيير شكل ملف مؤقت 🎭', type: 'tempProfile', style: { borderColor: '#F59E0B' }, durationHours: 24, weight: 10 },
-    { id: 'double_points', label: 'فرصة مضاعفة النقاط (ساعتين) ⚡', type: 'doublePoints', durationMinutes: 120, weight: 7 }
-  ];
+  // Reward wheel: only point rewards from 5 to 25 distributed across the wheel (12 sectors)
+  const rewardDefinitions = (() => {
+    const values = [5, 10, 15, 20, 25];
+    const arr = [];
+    // create 12 sectors cycling through the values
+    for (let i = 0; i < 12; i++) {
+      const val = values[i % values.length];
+      arr.push({ id: `points_${val}_${i}`, label: `+${val} نقاط`, type: 'points', amount: val, weight: 1 });
+    }
+    return arr;
+  })();
 
   const chooseWeightedRandom = (items) => {
     const total = (items || []).reduce((s, it) => s + (it.weight || 0), 0);
