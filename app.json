@@ -1,25 +1,19 @@
 {
   "expo": {
-    "name": "AlHudaApp",
+    "name": "أكاديمية الهُدى",              // اسم التطبيق الذي يظهر في الهاتف
     "slug": "AlHudaApp",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "ios": {
-      "supportsTablet": true
+    "icon": "./assets/icon.jpeg",           // صورة أيقونة التطبيق
+    "splash": {
+      "image": "./assets/splash-icon.jpeg",      // صورة خلفية الـ Splash Screen
+      "resizeMode": "contain",             // أو "cover" حسب تصميمك
+      "backgroundColor": "#ffffff"         // لون الخلفية
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/android-icon-foreground.jpeg",
+        "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.AlHudaApp"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
+      "package": "com.alhuda.app"
     }
   }
 }
