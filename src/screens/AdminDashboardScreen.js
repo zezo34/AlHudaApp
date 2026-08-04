@@ -1,5 +1,5 @@
 // screens/AdminDashboardScreen.js
-import React, { useState, useContext, useMemo, useEffect } from 'react';
+import React, { useState, useContext, useMemo, useEffect, useCallback, memo } from 'react';
 import { 
   View, 
   Text, 
@@ -153,6 +153,268 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
 };
 
 // ==========================================
+// 🟢 مكون رأس إدارة لوحة الأدمن
+// ==========================================
+const AdminDashboardHeader = memo(({
+  activeTab,
+  addCourse,
+  addStudent,
+  addExam,
+  addWeeklyQuestion,
+  activeWeeklyQuestion,
+  onDeleteWeeklyQuestion,
+  pendingCount,
+  onApproveAllPending,
+  onRejectAllPending,
+}) => {
+  const [newTitle, setNewTitle] = useState('');
+  const [newInstructor, setNewInstructor] = useState('');
+  const [newPrice, setNewPrice] = useState('');
+  const [newCourseCategory, setNewCourseCategory] = useState(COURSE_CATEGORIES[0]);
+
+  const [examTitle, setExamTitle] = useState('');
+  const [question, setQuestion] = useState('');
+  const [examStars, setExamStars] = useState('15');
+  const [questionType, setQuestionType] = useState('essay');
+  const [mcqOptions, setMcqOptions] = useState(['', '', '', '']);
+  const [correctOptionIndex, setCorrectOptionIndex] = useState(0);
+  const [isWeeklyQuestion, setIsWeeklyQuestion] = useState(false);
+
+  const [studentName, setStudentName] = useState('');
+  const [customStudentId, setCustomStudentId] = useState('');
+  const [gender, setGender] = useState('boy');
+  const [initialReport, setInitialReport] = useState('');
+
+  const handleAddCourse = () => {
+    if (!newTitle.trim() || !newInstructor.trim() || !newPrice.trim()) {
+      Alert.alert('تنبيه 💡', 'يرجى ملء جميع الحقول الخاصة بالدورة!');
+      return;
+    }
+    addCourse?.({ title: newTitle.trim(), instructor: newInstructor.trim(), price: newPrice.trim(), category: newCourseCategory || 'عام' });
+    setNewTitle('');
+    setNewInstructor('');
+    setNewPrice('');
+    setNewCourseCategory(COURSE_CATEGORIES[0]);
+    Alert.alert('نجاح ✨', 'تمت إضافة الدورة التدريبية بنجاح!');
+  };
+
+  const handleAddStudent = () => {
+    if (!studentName.trim()) {
+      Alert.alert('تنبيه 💡', 'يرجى إدخال اسم الطالب!');
+      return;
+    }
+    addStudent?.({
+      name: studentName.trim(),
+      studentId: customStudentId.trim() || `STU-${Math.floor(100 + Math.random() * 900)}`,
+      gender,
+      initialReport: initialReport.trim() ? initialReport.trim() : null
+    });
+    setStudentName('');
+    setCustomStudentId('');
+    setInitialReport('');
+    Alert.alert('تم الإضافة 🔑', 'تم إنشاء حساب الطالب بنجاح!');
+  };
+
+  const handleAddExam = () => {
+    if (!examTitle.trim() || !question.trim()) {
+      Alert.alert('تنبيه 💡', 'يرجى كتابة العنوان والسؤال بشكل كامل!');
+      return;
+    }
+
+    const stars = Number(examStars) || 15;
+    if (questionType === 'mcq') {
+      const optionValues = mcqOptions.map(opt => opt.trim());
+      const filledOptions = optionValues.filter(Boolean);
+      if (filledOptions.length < 2) {
+        Alert.alert('تنبيه 💡', 'يرجى كتابة خيارين على الأقل للسؤال متعدد الاختيارات.');
+        return;
+      }
+      if (!optionValues[correctOptionIndex]) {
+        Alert.alert('تنبيه 💡', 'يرجى تحديد الخيار الصحيح من بين خيارات الاختيار المتعدد.');
+        return;
+      }
+    }
+
+    const payload = {
+      title: examTitle.trim(),
+      question: question.trim(),
+      stars,
+      type: questionType,
+      options: questionType === 'mcq' ? mcqOptions.map(opt => opt.trim()).filter(Boolean) : null,
+      correctOptionIndex: questionType === 'mcq' ? correctOptionIndex : null,
+      rewardStars: stars
+    };
+
+    if (isWeeklyQuestion) {
+      addWeeklyQuestion?.(payload);
+      Alert.alert('تم نشر التحدي 📅⭐', 'تم نشر السؤال الأسبوعي بنجاح!');
+    } else {
+      addExam?.(payload);
+      Alert.alert('تم نشر الاختبار 📝⭐', 'تم نشر الاختبار بنجاح!');
+    }
+
+    setExamTitle('');
+    setQuestion('');
+    setQuestionType('essay');
+    setMcqOptions(['', '', '', '']);
+    setCorrectOptionIndex(0);
+    setExamStars('15');
+  };
+
+  return (
+    <View style={styles.formContainer}>
+      {activeTab === 'courses' && (
+        <View style={styles.cardForm}>
+          <View style={styles.cardFormHeader}>
+            <Ionicons name="add-circle-outline" size={24} color="#0F382C" />
+            <Text style={styles.cardFormTitle}>أضف دورة جديدة!</Text>
+          </View>
+          <TextInput style={styles.input} placeholder="عنوان الدورة (مثال: حفظ سورة البقرة 🕊️)" placeholderTextColor="#475569" value={newTitle} onChangeText={setNewTitle} />
+          <TextInput style={styles.input} placeholder="اسم المعلم ✨" placeholderTextColor="#475569" value={newInstructor} onChangeText={setNewInstructor} />
+          <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            {COURSE_CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat}
+                style={[
+                  styles.categoryChip,
+                  newCourseCategory === cat && styles.categoryChipActive
+                ]}
+                onPress={() => setNewCourseCategory(cat)}
+              >
+                <Text style={[styles.categoryChipText, newCourseCategory === cat && styles.categoryChipTextActive]}>{cat}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TextInput style={styles.input} placeholder="السعر 💰 (بالجنيه)" placeholderTextColor="#475569" keyboardType="numeric" value={newPrice} onChangeText={setNewPrice} />
+          <TouchableOpacity style={styles.addBtn} onPress={handleAddCourse}>
+            <Ionicons name="cloud-upload-outline" size={20} color="#D4AF37" />
+            <Text style={styles.addBtnText}> حفظ وإضافة! 🚀</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'students' && (
+        <View style={styles.cardForm}>
+          <View style={styles.cardFormHeader}>
+            <Ionicons name="person-add-outline" size={24} color="#0F382C" />
+            <Text style={styles.cardFormTitle}>إضافة طالب / طالبة جديد</Text>
+          </View>
+          <TextInput style={styles.input} placeholder="الاسم (مثال: زياد أحمد / مريم علي)" placeholderTextColor="#475569" value={studentName} onChangeText={setStudentName} />
+          <View style={styles.genderContainer}>
+            <TouchableOpacity style={[styles.genderBtn, gender === 'boy' && styles.genderBtnBoyActive]} onPress={() => setGender('boy')}>
+              <Text style={[styles.genderText, gender === 'boy' && styles.genderTextActive]}>👦 طالب (ولد)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.genderBtn, gender === 'girl' && styles.genderBtnGirlActive]} onPress={() => setGender('girl')}>
+              <Text style={[styles.genderText, gender === 'girl' && styles.genderTextActive]}>👧 طالبة (بنت)</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput style={styles.input} placeholder="كود الحساب اختياري (تلقائي: STU-103)" placeholderTextColor="#475569" autoCapitalize="characters" value={customStudentId} onChangeText={setCustomStudentId} />
+          <TextInput style={styles.input} placeholder="تقرير أولي أو نشاط (اختياري)" placeholderTextColor="#475569" value={initialReport} onChangeText={setInitialReport} />
+          <TouchableOpacity style={styles.addBtn} onPress={handleAddStudent}>
+            <Ionicons name="key-outline" size={20} color="#D4AF37" />
+            <Text style={styles.addBtnText}> إضافة الحساب 🔑</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'exams' && (
+        <View>
+          {activeWeeklyQuestion && (
+            <View style={styles.weeklyQuestionCard}>
+              <View style={styles.weeklyCardHeader}>
+                <Text style={styles.weeklyCardBadgeText}>السؤال الأسبوعي النشط 📅</Text>
+                <Text style={styles.weeklyCardStars}>⭐ {activeWeeklyQuestion.rewardStars || activeWeeklyQuestion.stars || 15} نجمة</Text>
+              </View>
+              <Text style={styles.weeklyCardTitle}>{activeWeeklyQuestion.title || 'تحدي الأسبوع'}</Text>
+              <Text style={styles.weeklyCardQuestion}>❓ {activeWeeklyQuestion.question}</Text>
+              <TouchableOpacity style={styles.deleteWeeklyBtn} onPress={() => onDeleteWeeklyQuestion?.()}>
+                <Ionicons name="trash-outline" size={16} color="#FFF" />
+                <Text style={styles.deleteWeeklyBtnText}> مسح السؤال الأسبوعي</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={styles.cardForm}>
+            <View style={styles.cardFormHeader}>
+              <Ionicons name="school-outline" size={24} color="#0F382C" />
+              <Text style={styles.cardFormTitle}>أضف اختباراً أو سؤالاً أسبوعياً!</Text>
+            </View>
+            <View style={styles.genderContainer}>
+              <TouchableOpacity style={[styles.genderBtn, !isWeeklyQuestion && styles.genderBtnBoyActive]} onPress={() => setIsWeeklyQuestion(false)}>
+                <Text style={[styles.genderText, !isWeeklyQuestion && styles.genderTextActive]}>📝 اختبار عادي</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.genderBtn, isWeeklyQuestion && styles.weeklyBtnActive]} onPress={() => setIsWeeklyQuestion(true)}>
+                <Text style={[styles.genderText, isWeeklyQuestion && styles.weeklyTextActive]}>📅 سؤال أسبوعي ✨</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.questionTypeRow}>
+              <TouchableOpacity style={[styles.questionTypeBtn, questionType === 'essay' && styles.questionTypeBtnActive]} onPress={() => setQuestionType('essay')}>
+                <Text style={[styles.questionTypeText, questionType === 'essay' && styles.questionTypeTextActive]}>مقالي</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.questionTypeBtn, styles.questionTypeBtnLeftMargin, questionType === 'mcq' && styles.questionTypeBtnActive]} onPress={() => setQuestionType('mcq')}>
+                <Text style={[styles.questionTypeText, questionType === 'mcq' && styles.questionTypeTextActive]}>اختر من متعدد</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TextInput style={styles.input} placeholder={isWeeklyQuestion ? 'عنوان سؤال الأسبوع' : 'عنوان الاختبار'} placeholderTextColor="#475569" value={examTitle} onChangeText={setExamTitle} />
+            <TextInput style={[styles.input, { height: 70 }]} placeholder="اكتب السؤال هنا..." placeholderTextColor="#475569" multiline value={question} onChangeText={setQuestion} />
+            {questionType === 'mcq' && (
+              <View style={styles.mcqOptionsContainer}>
+                {['أ', 'ب', 'ج', 'د'].map((label, idx) => (
+                  <View key={idx} style={styles.mcqOptionRow}>
+                    <TextInput
+                      style={[styles.input, styles.mcqOptionInput]}
+                      placeholder={`الخيار ${label}`}
+                      placeholderTextColor="#475569"
+                      value={mcqOptions[idx]}
+                      onChangeText={(text) => setMcqOptions(prev => prev.map((opt, index) => index === idx ? text : opt))}
+                    />
+                    <TouchableOpacity
+                      style={[styles.optionSelectBtn, correctOptionIndex === idx && styles.optionSelectBtnActive]}
+                      onPress={() => setCorrectOptionIndex(idx)}
+                    >
+                      <Text style={[styles.optionSelectText, correctOptionIndex === idx && styles.optionSelectTextActive]}>{correctOptionIndex === idx ? '✔ صحيح' : 'ضع صحيح'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <Text style={styles.mcqHint}>اختر السؤال متعدد الاختيارات ثم اضغط على الخيار الصحيح. يجب أن يكون هناك خياران على الأقل.</Text>
+              </View>
+            )}
+            <TextInput style={styles.input} placeholder="رصيد النجوم ⭐" placeholderTextColor="#475569" keyboardType="numeric" value={examStars} onChangeText={setExamStars} />
+            <TouchableOpacity style={styles.addBtn} onPress={handleAddExam}>
+              <Ionicons name="paper-plane-outline" size={20} color="#D4AF37" />
+              <Text style={styles.addBtnText}> {isWeeklyQuestion ? ' انشر سؤال الأسبوع 📅⭐' : ' انشر الاختبار ⭐ 📤'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {activeTab === 'leaves' && (
+        <View style={styles.cardForm}>
+          <Text style={styles.cardFormTitle}>إدارة الطلبات المعلقة ({pendingCount})</Text>
+          <View style={styles.bulkActionRow}>
+            <TouchableOpacity style={styles.bulkApproveBtn} onPress={() => onApproveAllPending?.()}>
+              <Text style={styles.bulkActionText}>قبول الكل المعلق ✅</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bulkRejectBtn} onPress={() => onRejectAllPending?.()}>
+              <Text style={styles.bulkActionText}>رفض الكل المعلق ❌</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      <Text style={styles.sectionHeader}>
+        {activeTab === 'courses' && '📋 الدورات الحالية'}
+        {activeTab === 'students' && '📊 قائمة الطلاب وتقارير الأداء'}
+        {activeTab === 'exams' && '📥 الإجابات الواردة'}
+        {activeTab === 'leaves' && '🌴 قائمة الإجازات'}
+      </Text>
+    </View>
+  );
+});
+
+// ==========================================
 // 🟢 المكون الرئيسي: لوحة المعلم / الأدمن
 // ==========================================
 export default function AdminDashboardScreen({ onBack }) {
@@ -236,25 +498,6 @@ export default function AdminDashboardScreen({ onBack }) {
     }
   }, [subscriptionData]);
 
-  // حالات الكورسات والاختبارات والطلاب
-  const [newTitle, setNewTitle] = useState('');
-  const [newInstructor, setNewInstructor] = useState('');
-  const [newPrice, setNewPrice] = useState('');
-  const [newCourseCategory, setNewCourseCategory] = useState(COURSE_CATEGORIES[0]);
-
-  const [examTitle, setExamTitle] = useState('');
-  const [question, setQuestion] = useState('');
-  const [examStars, setExamStars] = useState('15'); 
-  const [questionType, setQuestionType] = useState('essay');
-  const [mcqOptions, setMcqOptions] = useState(['', '', '', '']);
-  const [correctOptionIndex, setCorrectOptionIndex] = useState(0);
-  const [isWeeklyQuestion, setIsWeeklyQuestion] = useState(false); 
-
-  const [studentName, setStudentName] = useState('');
-  const [customStudentId, setCustomStudentId] = useState('');
-  const [gender, setGender] = useState('boy');
-  const [initialReport, setInitialReport] = useState('');
-
   const [expandedCourseId, setExpandedCourseId] = useState(null);
   const [newModuleTitleByCourse, setNewModuleTitleByCourse] = useState({});
   const [newModuleLessonsByCourse, setNewModuleLessonsByCourse] = useState({});
@@ -303,45 +546,11 @@ export default function AdminDashboardScreen({ onBack }) {
     }
   };
 
-  const handleAddCourse = () => {
-    if (!newTitle.trim() || !newInstructor.trim() || !newPrice.trim()) {
-      Alert.alert("تنبيه 💡", "يرجى ملء جميع الحقول الخاصة بالدورة!");
-      return;
-    }
-    if (addCourse) {
-      addCourse({ title: newTitle, instructor: newInstructor, price: newPrice, category: newCourseCategory || 'عام' });
-      setNewTitle('');
-      setNewInstructor('');
-      setNewPrice('');
-      setNewCourseCategory(COURSE_CATEGORIES[0]);
-      Alert.alert("نجاح ✨", "تمت إضافة الدورة التدريبية بنجاح!");
-    }
-  };
-
   const handleDeleteCourse = (id) => {
     Alert.alert("حذف الدورة 🗑️", "هل أنت تأكد من رغبتك في حذف هذه الدورة؟", [
       { text: "إلغاء ❌", style: "cancel" },
       { text: "تأكيد الحذف 🗑️", style: "destructive", onPress: () => deleteCourse && deleteCourse(id) }
     ]);
-  };
-
-  const handleAddStudent = () => {
-    if (!studentName.trim()) {
-      Alert.alert("تنبيه 💡", "يرجى إدخال اسم الطالب!");
-      return;
-    }
-    if (addStudent) {
-      addStudent({
-        name: studentName,
-        studentId: customStudentId.trim() || `STU-${Math.floor(100 + Math.random() * 900)}`,
-        gender,
-        initialReport: initialReport.trim() ? initialReport : null
-      });
-      setStudentName('');
-      setCustomStudentId('');
-      setInitialReport('');
-      Alert.alert("تم الإضافة 🔑", "تم إنشاء حساب الطالب بنجاح!");
-    }
   };
 
   const handleAddModule = (courseId) => {
@@ -502,53 +711,6 @@ export default function AdminDashboardScreen({ onBack }) {
     deleteStudentReport?.(studentId, reportId);
   };
 
-  const handleAddExam = () => {
-    if (!examTitle.trim() || !question.trim()) {
-      Alert.alert("تنبيه 💡", "يرجى كتابة العنوان والسؤال بشكل كامل!");
-      return;
-    }
-    const stars = Number(examStars) || 15;
-    if (questionType === 'mcq') {
-      const optionValues = mcqOptions.map(opt => opt.trim());
-      const filledOptions = optionValues.filter(Boolean);
-      if (filledOptions.length < 2) {
-        Alert.alert("تنبيه 💡", "يرجى كتابة خيارين على الأقل للسؤال متعدد الاختيارات.");
-        return;
-      }
-      if (!optionValues[correctOptionIndex]) {
-        Alert.alert("تنبيه 💡", "يرجى تحديد الخيار الصحيح من بين خيارات الاختيار المتعدد.");
-        return;
-      }
-    }
-
-    const payload = {
-      title: examTitle,
-      question,
-      stars,
-      type: questionType,
-      options: questionType === 'mcq' ? mcqOptions.map(opt => opt.trim()) : null,
-      correctOptionIndex: questionType === 'mcq' ? correctOptionIndex : null
-    };
-
-    if (isWeeklyQuestion) {
-      if (addWeeklyQuestion) {
-        addWeeklyQuestion({ ...payload, rewardStars: stars });
-        Alert.alert("تم نشر التحدي 📅⭐", "تم نشر السؤال الأسبوعي بنجاح!");
-      }
-    } else {
-      if (addExam) {
-        addExam(payload);
-        Alert.alert("تم نشر الاختبار 📝⭐", "تم نشر الاختبار بنجاح!");
-      }
-    }
-
-    setExamTitle('');
-    setQuestion('');
-    setQuestionType('essay');
-    setMcqOptions(['', '', '', '']);
-    setCorrectOptionIndex(0);
-  };
-
   const handleDeleteWeeklyQuestion = () => {
     Alert.alert("مسح السؤال الأسبوعي 🗑️", "هل أنت متاكد من حذف سؤال الأسبوع النشط؟", [
       { text: "تراجع ❌", style: "cancel" },
@@ -664,157 +826,20 @@ export default function AdminDashboardScreen({ onBack }) {
     return [];
   }, [activeTab, courses, studentsDatabase, filteredExamResults, filteredLeaveRequests]);
 
-  const renderHeaderComponent = () => (
-    <View style={styles.formContainer}>
-      {activeTab === 'courses' && (
-        <View style={styles.cardForm}>
-          <View style={styles.cardFormHeader}>
-            <Ionicons name="add-circle-outline" size={24} color="#0F382C" />
-            <Text style={styles.cardFormTitle}>أضف دورة جديدة!</Text>
-          </View>
-          <TextInput style={styles.input} placeholder="عنوان الدورة (مثال: حفظ سورة البقرة 🕊️)" placeholderTextColor="#475569" value={newTitle} onChangeText={setNewTitle} />
-          <TextInput style={styles.input} placeholder="اسم المعلم ✨" placeholderTextColor="#475569" value={newInstructor} onChangeText={setNewInstructor} />
-          <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-            {COURSE_CATEGORIES.map((cat) => (
-              <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.categoryChip,
-                  newCourseCategory === cat && styles.categoryChipActive
-                ]}
-                onPress={() => setNewCourseCategory(cat)}
-              >
-                <Text style={[styles.categoryChipText, newCourseCategory === cat && styles.categoryChipTextActive]}>{cat}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TextInput style={styles.input} placeholder="السعر 💰 (بالجنيه)" placeholderTextColor="#475569" keyboardType="numeric" value={newPrice} onChangeText={setNewPrice} />
-          <TouchableOpacity style={styles.addBtn} onPress={handleAddCourse}>
-            <Ionicons name="cloud-upload-outline" size={20} color="#D4AF37" />
-            <Text style={styles.addBtnText}> حفظ وإضافة! 🚀</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {activeTab === 'students' && (
-        <View style={styles.cardForm}>
-          <View style={styles.cardFormHeader}>
-            <Ionicons name="person-add-outline" size={24} color="#0F382C" />
-            <Text style={styles.cardFormTitle}>إضافة طالب / طالبة جديد</Text>
-          </View>
-          <TextInput style={styles.input} placeholder="الاسم (مثال: زياد أحمد / مريم علي)" placeholderTextColor="#475569" value={studentName} onChangeText={setStudentName} />
-          <View style={styles.genderContainer}>
-            <TouchableOpacity style={[styles.genderBtn, gender === 'boy' && styles.genderBtnBoyActive]} onPress={() => setGender('boy')}>
-              <Text style={[styles.genderText, gender === 'boy' && styles.genderTextActive]}>👦 طالب (ولد)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.genderBtn, gender === 'girl' && styles.genderBtnGirlActive]} onPress={() => setGender('girl')}>
-              <Text style={[styles.genderText, gender === 'girl' && styles.genderTextActive]}>👧 طالبة (بنت)</Text>
-            </TouchableOpacity>
-          </View>
-          <TextInput style={styles.input} placeholder="كود الحساب اختياري (تلقائي: STU-103)" placeholderTextColor="#475569" autoCapitalize="characters" value={customStudentId} onChangeText={setCustomStudentId} />
-          <TextInput style={styles.input} placeholder="تقرير أولي أو نشاط (اختياري)" placeholderTextColor="#475569" value={initialReport} onChangeText={setInitialReport} />
-          <TouchableOpacity style={styles.addBtn} onPress={handleAddStudent}>
-            <Ionicons name="key-outline" size={20} color="#D4AF37" />
-            <Text style={styles.addBtnText}> إضافة الحساب 🔑</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {activeTab === 'exams' && (
-        <View>
-          {activeWeeklyQuestion && (
-            <View style={styles.weeklyQuestionCard}>
-              <View style={styles.weeklyCardHeader}>
-                <Text style={styles.weeklyCardBadgeText}>السؤال الأسبوعي النشط 📅</Text>
-                <Text style={styles.weeklyCardStars}>⭐ {activeWeeklyQuestion.rewardStars || activeWeeklyQuestion.stars || 15} نجمة</Text>
-              </View>
-              <Text style={styles.weeklyCardTitle}>{activeWeeklyQuestion.title || 'تحدي الأسبوع'}</Text>
-              <Text style={styles.weeklyCardQuestion}>❓ {activeWeeklyQuestion.question}</Text>
-              <TouchableOpacity style={styles.deleteWeeklyBtn} onPress={handleDeleteWeeklyQuestion}>
-                <Ionicons name="trash-outline" size={16} color="#FFF" />
-                <Text style={styles.deleteWeeklyBtnText}> مسح السؤال الأسبوعي</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          <View style={styles.cardForm}>
-            <View style={styles.cardFormHeader}>
-              <Ionicons name="school-outline" size={24} color="#0F382C" />
-              <Text style={styles.cardFormTitle}>أضف اختباراً أو سؤالاً أسبوعياً!</Text>
-            </View>
-            <View style={styles.genderContainer}>
-              <TouchableOpacity style={[styles.genderBtn, !isWeeklyQuestion && styles.genderBtnBoyActive]} onPress={() => setIsWeeklyQuestion(false)}>
-                <Text style={[styles.genderText, !isWeeklyQuestion && styles.genderTextActive]}>📝 اختبار عادي</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.genderBtn, isWeeklyQuestion && styles.weeklyBtnActive]} onPress={() => setIsWeeklyQuestion(true)}>
-                <Text style={[styles.genderText, isWeeklyQuestion && styles.weeklyTextActive]}>📅 سؤال أسبوعي ✨</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.questionTypeRow}>
-              <TouchableOpacity style={[styles.questionTypeBtn, questionType === 'essay' && styles.questionTypeBtnActive]} onPress={() => setQuestionType('essay')}>
-                <Text style={[styles.questionTypeText, questionType === 'essay' && styles.questionTypeTextActive]}>مقالي</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.questionTypeBtn, styles.questionTypeBtnLeftMargin, questionType === 'mcq' && styles.questionTypeBtnActive]} onPress={() => setQuestionType('mcq')}>
-                <Text style={[styles.questionTypeText, questionType === 'mcq' && styles.questionTypeTextActive]}>اختر من متعدد</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TextInput style={styles.input} placeholder={isWeeklyQuestion ? "عنوان سؤال الأسبوع" : "عنوان الاختبار"} placeholderTextColor="#475569" value={examTitle} onChangeText={setExamTitle} />
-            <TextInput style={[styles.input, { height: 70 }]} placeholder="اكتب السؤال هنا..." placeholderTextColor="#475569" multiline value={question} onChangeText={setQuestion} />
-            {questionType === 'mcq' && (
-              <View style={styles.mcqOptionsContainer}>
-                {['أ', 'ب', 'ج', 'د'].map((label, idx) => (
-                  <View key={idx} style={styles.mcqOptionRow}>
-                    <TextInput
-                      style={[styles.input, styles.mcqOptionInput]}
-                      placeholder={`الخيار ${label}`}
-                      placeholderTextColor="#475569"
-                      value={mcqOptions[idx]}
-                      onChangeText={(text) => setMcqOptions(prev => prev.map((opt, index) => index === idx ? text : opt))}
-                    />
-                    <TouchableOpacity
-                      style={[styles.optionSelectBtn, correctOptionIndex === idx && styles.optionSelectBtnActive]}
-                      onPress={() => setCorrectOptionIndex(idx)}
-                    >
-                      <Text style={[styles.optionSelectText, correctOptionIndex === idx && styles.optionSelectTextActive]}>{correctOptionIndex === idx ? '✔ صحيح' : 'ضع صحيح'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                <Text style={styles.mcqHint}>اختر السؤال متعدد الاختيارات ثم اضغط على الخيار الصحيح. يجب أن يكون هناك خياران على الأقل.</Text>
-              </View>
-            )}
-            <TextInput style={styles.input} placeholder="رصيد النجوم ⭐" placeholderTextColor="#475569" keyboardType="numeric" value={examStars} onChangeText={setExamStars} />
-            <TouchableOpacity style={styles.addBtn} onPress={handleAddExam}>
-              <Ionicons name="paper-plane-outline" size={20} color="#D4AF37" />
-              <Text style={styles.addBtnText}> {isWeeklyQuestion ? ' انشر سؤال الأسبوع 📅⭐' : ' انشر الاختبار ⭐ 📤'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {activeTab === 'leaves' && (
-        <View style={styles.cardForm}>
-          <Text style={styles.cardFormTitle}>إدارة الطلبات المعلقة ({pendingCount})</Text>
-          <View style={styles.bulkActionRow}>
-            <TouchableOpacity style={styles.bulkApproveBtn} onPress={handleApproveAllPending}>
-              <Text style={styles.bulkActionText}>قبول الكل المعلق ✅</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.bulkRejectBtn} onPress={handleRejectAllPending}>
-              <Text style={styles.bulkActionText}>رفض الكل المعلق ❌</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      <Text style={styles.sectionHeader}>
-        {activeTab === 'courses' && '📋 الدورات الحالية'}
-        {activeTab === 'students' && '📊 قائمة الطلاب وتقارير الأداء'}
-        {activeTab === 'exams' && '📥 الإجابات الواردة'}
-        {activeTab === 'leaves' && '🌴 قائمة الإجازات'}
-      </Text>
-    </View>
-  );
+    const renderHeaderComponent = useCallback(() => (
+    <AdminDashboardHeader
+      activeTab={activeTab}
+      addCourse={addCourse}
+      addStudent={addStudent}
+      addExam={addExam}
+      addWeeklyQuestion={addWeeklyQuestion}
+      activeWeeklyQuestion={activeWeeklyQuestion}
+      onDeleteWeeklyQuestion={handleDeleteWeeklyQuestion}
+      pendingCount={pendingCount}
+      onApproveAllPending={handleApproveAllPending}
+      onRejectAllPending={handleRejectAllPending}
+    />
+  ), [activeTab, addCourse, addStudent, addExam, addWeeklyQuestion, activeWeeklyQuestion, handleDeleteWeeklyQuestion, pendingCount, handleApproveAllPending, handleRejectAllPending]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -831,7 +856,7 @@ export default function AdminDashboardScreen({ onBack }) {
             <TouchableOpacity style={styles.logoutBtn} onPress={onBack}>
               <Ionicons name="arrow-back" size={24} color="#FFF" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>⚙️ لوحة المعلم / الأدمن</Text>
+            <Text style={styles.headerTitle}>لوحة المعلم محمود ساطور</Text>
             <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
               <Ionicons name="log-out-outline" size={24} color="#FFF8E1" />
             </TouchableOpacity>
