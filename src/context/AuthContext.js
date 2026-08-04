@@ -19,6 +19,9 @@ export const AuthProvider = ({ children }) => {
   // 👥 قاعدة البيانات
   const [studentsDatabase, setStudentsDatabase] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
+  const [sessionReports, setSessionReports] = useState([]);
+  // طلبات الدفع اليدوية للتحقق (محفظة نقدية)
+  const [paymentRequests, setPaymentRequests] = useState([]);
   
   // 📬 نظام الإشعارات للأولياء
   const [parentNotifications, setParentNotifications] = useState([]);
@@ -74,7 +77,11 @@ export const AuthProvider = ({ children }) => {
         
         if (savedLeaves) setLeaveRequests(JSON.parse(savedLeaves));
         if (savedParentNotifs) setParentNotifications(JSON.parse(savedParentNotifs));
-
+        const savedSessionReports = await AsyncStorage.getItem('@session_reports');
+        if (savedSessionReports) setSessionReports(JSON.parse(savedSessionReports));
+        const savedPaymentRequests = await AsyncStorage.getItem('@payment_requests');
+        if (savedPaymentRequests) setPaymentRequests(JSON.parse(savedPaymentRequests));
+ 
         // Load remembered credentials for auto-login
         try {
           const adminSecure = await SecureStore.getItemAsync(ADMIN_SECURE_KEY);
@@ -148,13 +155,15 @@ export const AuthProvider = ({ children }) => {
         await AsyncStorage.setItem('@students_database', JSON.stringify(studentsToPersist));
         await AsyncStorage.setItem('@leave_requests', JSON.stringify(leaveRequests));
         await AsyncStorage.setItem('@parent_notifications', JSON.stringify(parentNotifications));
+        await AsyncStorage.setItem('@session_reports', JSON.stringify(sessionReports));
+        await AsyncStorage.setItem('@payment_requests', JSON.stringify(paymentRequests));
       } catch (error) {
         console.error('خطأ في الحفظ:', error);
       }
     };
 
     saveData();
-  }, [subscriptionData, studentsDatabase, leaveRequests, parentNotifications, isLoaded]);
+  }, [subscriptionData, studentsDatabase, leaveRequests, parentNotifications, sessionReports, paymentRequests, isLoaded]);
 
   // Helpers to save/clear remembered credentials
   const saveRememberedCredentials = async (payload) => {
@@ -439,6 +448,22 @@ export const AuthProvider = ({ children }) => {
     );
   };
 
+  // 🗑️ حذف حساب الطالب بالكامل
+  const deleteStudent = (studentId) => {
+    if (!studentId) return { success: false, message: 'معرّف الطالب غير صالح' };
+
+    setStudentsDatabase((prev) => prev.filter(s => !(s.id === studentId || s.studentId === studentId)));
+
+    // If currently logged-in user is this student or parent of the student, log them out
+    setUser((prevUser) => {
+      if (!prevUser) return prevUser;
+      if (prevUser.id === studentId || prevUser.studentId === studentId) return null;
+      return prevUser;
+    });
+
+    return { success: true, message: 'تم حذف حساب الطالب.' };
+  };
+
   // 🗑️ حذف تقرير
   const deleteStudentReport = (studentId, reportId) => {
     setStudentsDatabase((prevStudents) =>
@@ -568,9 +593,38 @@ export const AuthProvider = ({ children }) => {
   const deleteNotification = (notificationId) => {
     setParentNotifications((prev) => prev.filter((n) => n.id !== notificationId));
   };
-
+ 
   const getParentNotifications = (parentId) => {
     return parentNotifications.filter((n) => n.parentId === parentId);
+  };
+
+  const addSessionReport = (report) => {
+    if (!report) return null;
+    const normalizedReport = {
+      id: report.id || `session_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      studentId: report.studentId || report.userId || null,
+      studentName: report.studentName || report.userName || 'الطالب',
+      roomName: report.roomName || report.surah || 'جلسة التسميع',
+      joinTime: report.joinTime || null,
+      leaveTime: report.leaveTime || null,
+      durationText: report.durationText || null,
+      pdfUri: report.pdfUri || null,
+      transcriptionText: report.transcriptionText || '',
+      mistakesList: Array.isArray(report.mistakesList) ? report.mistakesList : (report.mistakes ? [report.mistakes] : []),
+      score: Number(report.score) || null,
+      aiNotes: report.aiNotes || report.notes || '',
+      date: report.date || new Date().toLocaleDateString('ar-EG'),
+      hasAudioContent: Boolean(report.hasAudioContent),
+      createdAt: report.createdAt || Date.now()
+    };
+
+    setSessionReports((prev) => [normalizedReport, ...prev]);
+    return normalizedReport;
+  };
+
+  const getSessionReports = (studentId) => {
+    if (!studentId) return [];
+    return sessionReports.filter((report) => report.studentId === studentId);
   };
 
   const cancelSubscriptionForStudent = (studentId) => {
@@ -580,6 +634,58 @@ export const AuthProvider = ({ children }) => {
 
   const setSubscriptionPrice = (newPrice) => {
     setSubscriptionData(prev => ({ ...prev, price: String(newPrice) }));
+  };
+
+  // -----------------------------
+  // المدفوعات اليدوية: إرسال طلب تحقق من عملية تحويل يدوي
+  // -----------------------------
+  const submitManualTransfer = ({ studentId, studentName, senderNumber, referenceCode, amount = null, target = 'subscription', courseId = null }) => {
+    if (!studentId) return { success: false, message: 'مطلوب معرّف الطالب' };
+
+    const req = {
+      id: `pay_${Date.now()}_${Math.floor(Math.random()*10000)}`,
+      studentId,
+      studentName: studentName || null,
+      senderNumber: senderNumber || null,
+      referenceCode: referenceCode || null,
+      amount: amount || null,
+      target: target, // 'subscription' or 'course'
+      courseId: courseId || null,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    setPaymentRequests(prev => [req, ...prev]);
+    return { success: true, request: req };
+  };
+
+  const approvePaymentRequest = (requestId, opts = {}) => {
+    const found = paymentRequests.find(r => r.id === requestId);
+    if (!found) return { success: false, message: 'لم يتم العثور على طلب الدفع' };
+
+    // mark as accepted
+    setPaymentRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'accepted', reviewedAt: new Date().toISOString(), reviewer: opts.reviewer || 'admin' } : r));
+
+    // If target is subscription, grant 30-day subscription from today
+    try {
+      if (found.target === 'subscription') {
+        const start = new Date();
+        start.setHours(0,0,0,0);
+        const expiry = new Date(start.getTime() + (30 * 24 * 60 * 60 * 1000));
+        subscribeUser(found.studentId, { start: start.toISOString(), expiry: expiry.toISOString() }, true);
+      }
+    } catch (e) {
+      console.warn('approvePaymentRequest subscribeUser failed', e);
+    }
+
+    return { success: true };
+  };
+
+  const rejectPaymentRequest = (requestId, reason = '') => {
+    const found = paymentRequests.find(r => r.id === requestId);
+    if (!found) return { success: false, message: 'لم يتم العثور على طلب الدفع' };
+    setPaymentRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'rejected', reviewedAt: new Date().toISOString(), rejectionReason: reason || null } : r));
+    return { success: true };
   };
 
   // -----------------------------
@@ -718,9 +824,9 @@ export const AuthProvider = ({ children }) => {
     return Math.floor(ms / (24 * 60 * 60 * 1000));
   };
 
-  // Record that the student practiced on a given date (defaults to today).
-  // Returns the updated tree state for the student.
-  const recordDailyPractice = (studentId, when = Date.now()) => {
+  // Record that the student practiced on a given date for a specific course (defaults to today).
+  // Returns the updated tree state for that course for the student.
+  const recordDailyPractice = (studentId, when = Date.now(), courseId = 'global') => {
     if (!studentId) return null;
     const key = normalizeDateKey(when);
 
@@ -729,53 +835,57 @@ export const AuthProvider = ({ children }) => {
       return prev.map(st => {
         if (st.id === studentId || st.studentId === studentId) {
           const copy = { ...st };
-          copy.practiceDates = Array.isArray(copy.practiceDates) ? copy.practiceDates : [];
-          if (!copy.practiceDates.includes(key)) {
-            copy.practiceDates.unshift(key);
-            // keep only recent 365 entries to bound size
-            if (copy.practiceDates.length > 365) copy.practiceDates = copy.practiceDates.slice(0, 365);
-          }
-          copy.lastPracticeDate = copy.practiceDates[0] || null;
 
-          // compute streak: consecutive days up to lastPracticeDate
-          const datesSet = new Set(copy.practiceDates);
+          // per-course practice storage: practiceByCourse: { [courseId]: { practiceDates: [], lastPracticeDate, streak, tree } }
+          copy.practiceByCourse = copy.practiceByCourse && typeof copy.practiceByCourse === 'object' ? { ...copy.practiceByCourse } : {};
+          const bucket = copy.practiceByCourse[courseId] ? { ...copy.practiceByCourse[courseId] } : { practiceDates: [] };
+
+          bucket.practiceDates = Array.isArray(bucket.practiceDates) ? bucket.practiceDates : [];
+          if (!bucket.practiceDates.includes(key)) {
+            bucket.practiceDates.unshift(key);
+            if (bucket.practiceDates.length > 365) bucket.practiceDates = bucket.practiceDates.slice(0, 365);
+          }
+          bucket.lastPracticeDate = bucket.practiceDates[0] || null;
+
+          // compute streak for this course
+          const datesSet = new Set(bucket.practiceDates);
           let streak = 0;
-          let cur = new Date(copy.lastPracticeDate + 'T00:00:00');
-          while (true) {
-            const curKey = normalizeDateKey(cur);
-            if (datesSet.has(curKey)) {
-              streak += 1;
-              // go back one day
-              cur = new Date(cur.getTime() - (24 * 60 * 60 * 1000));
-            } else {
-              break;
+          if (bucket.lastPracticeDate) {
+            let cur = new Date(bucket.lastPracticeDate + 'T00:00:00');
+            while (true) {
+              const curKey = normalizeDateKey(cur);
+              if (datesSet.has(curKey)) {
+                streak += 1;
+                cur = new Date(cur.getTime() - (24 * 60 * 60 * 1000));
+              } else break;
             }
           }
-          copy.streak = streak;
+          bucket.streak = streak;
 
           // compute missed days since last practice relative to today
           const todayKey = normalizeDateKey(new Date());
-          const daysSinceLast = daysBetweenKeys(copy.lastPracticeDate, todayKey);
-          const missedDays = Math.max(0, daysSinceLast - 0); // days not including today if lastPractice today -> 0
+          const daysSinceLast = daysBetweenKeys(bucket.lastPracticeDate, todayKey);
+          const missedDays = Math.max(0, daysSinceLast - 0);
 
           // compute tree stage from streak
-          // stages: 0 seed, 1-2 sprout, 3-6 sapling, 7-13 young tree, 14+ mature
           let stage = 'seed';
           if (streak >= 14) stage = 'mature';
           else if (streak >= 7) stage = 'young';
           else if (streak >= 3) stage = 'sapling';
           else if (streak >= 1) stage = 'sprout';
 
-          // leaves logic: baseLeaves by stage, subtract missedDays (cap at 0)
           const baseLeavesByStage = { seed: 0, sprout: 3, sapling: 5, young: 7, mature: 9 };
           const baseLeaves = baseLeavesByStage[stage] || 0;
           const leaves = Math.max(0, baseLeaves - Math.max(0, missedDays));
 
-          copy.tree = { stage, leaves, lastUpdated: Date.now(), lastPracticeDate: copy.lastPracticeDate };
+          bucket.tree = { stage, leaves, lastUpdated: Date.now(), lastPracticeDate: bucket.lastPracticeDate };
 
-          // update current user if matches
+          copy.practiceByCourse[courseId] = bucket;
+
+          // update current user object only for global fields (do not pollute user with course-specific buckets)
           if (user && (user.id === studentId || user.studentId === studentId)) {
-            setUser(prevUser => ({ ...prevUser, practiceDates: copy.practiceDates, streak: copy.streak, tree: copy.tree, lastPracticeDate: copy.lastPracticeDate }));
+            // shallow update of a course-specific view on user
+            setUser(prevUser => ({ ...prevUser, practiceByCourse: { ...(prevUser?.practiceByCourse || {}), [courseId]: bucket } }));
           }
 
           return copy;
@@ -784,16 +894,21 @@ export const AuthProvider = ({ children }) => {
       });
     });
 
-    // return computed tree for convenience (fetch from latest studentsDatabase)
+    // return computed tree for convenience
     const st = studentsDatabase.find(s => s.id === studentId || s.studentId === studentId);
-    return st ? (st.tree || null) : null;
+    if (!st) return null;
+    const bucket = st.practiceByCourse && st.practiceByCourse[courseId];
+    if (!bucket) return { stage: 'seed', leaves: 0, streak: 0, lastPracticeDate: null };
+    return { stage: bucket.tree?.stage || 'seed', leaves: bucket.tree?.leaves || 0, streak: bucket.streak || 0, lastPracticeDate: bucket.lastPracticeDate || null };
   };
 
-  const getTreeState = (studentId) => {
+  const getTreeState = (studentId, courseId = 'global') => {
     if (!studentId) return null;
     const st = studentsDatabase.find(s => s.id === studentId || s.studentId === studentId);
-    if (!st) return { stage: 'seed', leaves: 0, streak: 0 };
-    return { stage: st.tree?.stage || 'seed', leaves: st.tree?.leaves || 0, streak: st.streak || 0, lastPracticeDate: st.lastPracticeDate || null };
+    if (!st) return { stage: 'seed', leaves: 0, streak: 0, lastPracticeDate: null };
+    const bucket = st.practiceByCourse && st.practiceByCourse[courseId];
+    if (!bucket) return { stage: 'seed', leaves: 0, streak: 0, lastPracticeDate: null };
+    return { stage: bucket.tree?.stage || 'seed', leaves: bucket.tree?.leaves || 0, streak: bucket.streak || 0, lastPracticeDate: bucket.lastPracticeDate || null };
   };
 
   // -----------------------------
@@ -804,7 +919,6 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider 
       value={{ 
         user, 
-        studentsDatabase, 
         leaveRequests,
         parentNotifications,
         subscriptionData, 
@@ -825,6 +939,9 @@ export const AuthProvider = ({ children }) => {
         markNotificationAsRead,
         deleteNotification,
         getParentNotifications,
+        addSessionReport,
+        getSessionReports,
+        sessionReports,
         cancelSubscriptionForStudent,
         setSubscriptionPrice,
         // reward APIs
@@ -837,7 +954,14 @@ export const AuthProvider = ({ children }) => {
         getTreeState,
         rememberedCredentials,
         saveRememberedCredentials,
-        clearRememberedCredentials
+       clearRememberedCredentials,
+       // students & payments
+       studentsDatabase,
+       paymentRequests,
+       submitManualTransfer,
+       approvePaymentRequest,
+       rejectPaymentRequest,
+       deleteStudent
       }}
     >
       {children}
