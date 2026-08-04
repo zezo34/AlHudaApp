@@ -10,8 +10,7 @@ import {
   BackHandler,
   Alert,
   TextInput,
-  Modal,
-  ActivityIndicator
+  Modal
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { AuthContext } from '../context/AuthContext';
@@ -25,8 +24,6 @@ import ParentProgressScreen from './ParentProgressScreen';
 import StudentContentScreen from './StudentContentScreen';
 import IjazaScreen from './IjazaScreen';
 import ParadiseJourneyScreen from './ParadiseJourneyScreen';
-
-// 📄 استدعاء المكون الداخلي لعرض الـ PDF من داخل التطبيق بدون تنزيل
 import InternalPdfViewerModal from '../components/InternalPdfViewerModal';
 
 const CATEGORIES = ['الكل', 'القرآن الكريم', 'اللغة العربية', 'الدراسات الإسلامية'];
@@ -43,9 +40,6 @@ const BG_IMAGES = {
   student: { uri: 'https://img.freepik.com/free-vector/hand-drawn-ramadan-kareem-background_23-2149306041.jpg' },
 };
 
-// ==========================================
-// 1. مكون نظام الاشتراك الشهري (عداد تصاعدي للأيام من 30)
-// ==========================================
 const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionExpiry, subscriptionStart, isParent, planData }) => {
   const price = planData?.price ?? 199;
   const title = planData?.title || '📅 الاشتراك الشهري الشامل';
@@ -67,14 +61,11 @@ const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionE
       const nowMs = now.getTime();
       const totalRemaining = expiryTime - nowMs;
 
-      // If subscriptionStart is provided, use calendar-day counting from that date (local midnight)
       if (subscriptionStart) {
         const startDate = new Date(subscriptionStart);
-        // normalize to local midnight to count full calendar days
         startDate.setHours(0,0,0,0);
         const startMs = startDate.getTime();
 
-        // difference in days between today (local date) and start date
         const diffDays = Math.floor((nowMs - startMs) / (1000 * 60 * 60 * 24));
         const dayNum = Math.min(Math.max(diffDays + 1, 1), 30);
 
@@ -89,7 +80,6 @@ const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionE
         return;
       }
 
-      // Fallback: exact 30*24h window derived from expiry
       const expiryDateObj = new Date(subscriptionExpiry);
       const startDateMs = expiryDateObj.getTime() - (30 * 24 * 60 * 60 * 1000);
       const difference = nowMs - startDateMs;
@@ -107,7 +97,7 @@ const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionE
     };
 
     calculateDays();
-    const timerInterval = setInterval(calculateDays, 1000 * 60 * 60); // تحديث كل ساعة
+    const timerInterval = setInterval(calculateDays, 1000 * 60 * 60);
 
     return () => clearInterval(timerInterval);
   }, [isSubscribed, subscriptionExpiry, subscriptionStart]);
@@ -129,7 +119,6 @@ const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionE
     return isNaN(d.getTime()) ? subscriptionExpiry : d.toLocaleDateString('ar-EG');
   }, [subscriptionExpiry]);
 
-  // Global admin control: if planData.isSubActive === false then the package is disabled by admin
   const globalActive = planData?.isSubActive !== false;
   const disabledByAdmin = !globalActive;
 
@@ -185,7 +174,6 @@ const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionE
         </View>
       )}
 
-      {/* Show subscribe/renew button only if global package is active */}
       {globalActive ? (
         (!isSubscribed || showPaymentReminder || isExpired) && (
           <TouchableOpacity 
@@ -205,13 +193,7 @@ const MonthlySubscriptionCard = memo(({ isSubscribed, onSubscribe, subscriptionE
     </View>
   );
 });
-// ==========================================
-// 2. 📜 مكون عرض تقرير الـ PDF داخلياً
-// ==========================================
 
-// ==========================================
-// 3. 📄 كارت ملفات الـ PDF وتقارير التسميع
-// ==========================================
 const PdfSectionCard = memo(({ pdfList = [], onOpenPdf, lastBotSession }) => {
   const dynamicCurrentPdf = lastBotSession ? {
     id: lastBotSession.id || 'current-bot-session',
@@ -278,9 +260,6 @@ const PdfSectionCard = memo(({ pdfList = [], onOpenPdf, lastBotSession }) => {
   );
 });
 
-// ==========================================
-// 4. مكون سؤال الأسبوع التفاعلي
-// ==========================================
 const WeeklyQuestionCard = memo(({ questions = [], question, onAnswer, studentId, isParent }) => {
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(null);
   const [textAnswer, setTextAnswer] = useState('');
@@ -297,6 +276,7 @@ const WeeklyQuestionCard = memo(({ questions = [], question, onAnswer, studentId
     const reviewed = Boolean(
       q?.isReviewedByTeacher ||
       studentAns?.reviewed ||
+      studentAns?.isReviewed ||
       (answerStatus && !pendingReview) ||
       studentAns?.isCorrect !== undefined
     );
@@ -310,15 +290,13 @@ const WeeklyQuestionCard = memo(({ questions = [], question, onAnswer, studentId
   const isReviewComplete = Boolean(
     currentQ?.isReviewedByTeacher ||
     studentAns?.reviewed ||
+    studentAns?.isReviewed ||
     (answerStatus && !isReviewPending) ||
     studentAns?.isCorrect !== undefined
   );
   const isAnswered = Boolean(studentAns) || isSubmitted;
   const isMcq = currentQ?.type === 'mcq' && Array.isArray(currentQ?.options) && currentQ.options.length > 0;
   const selectedOption = isMcq && selectedOptionIndex != null ? currentQ.options[selectedOptionIndex] : null;
-
-  // If the answer has actually been reviewed by the teacher or auto-graded, hide the weekly question card entirely.
-  if (isReviewComplete) return null;
 
   useEffect(() => {
     setIsSubmitted(Boolean(studentAns));
@@ -329,7 +307,7 @@ const WeeklyQuestionCard = memo(({ questions = [], question, onAnswer, studentId
     setTextAnswer('');
   }, [currentQ?.id]);
 
-  if (isParent && activeParentQuestions.length === 0) return null;
+  if (isReviewComplete || (isParent && activeParentQuestions.length === 0)) return null;
 
   if (!currentQ) {
     return (
@@ -402,9 +380,6 @@ const WeeklyQuestionCard = memo(({ questions = [], question, onAnswer, studentId
   );
 });
 
-// ==========================================
-// 5. الرسم البياني الذكي للنجوم 📊
-// ==========================================
 const WeeklyStarsChart = memo(({ currentStudent }) => {
   const totalStars = currentStudent?.stars || 0;
 
@@ -448,18 +423,13 @@ const WeeklyStarsChart = memo(({ currentStudent }) => {
   );
 });
 
-// ==========================================
-// Course tree per enrolled course (شجرة الحفظ لكل كورس)
-// ==========================================
 const CourseTreeCard = memo(({ course, currentStudent }) => {
   const { getTreeState, getCourseProgress } = useContext(AuthContext);
   const studentId = currentStudent?.studentId || currentStudent?.id;
 
-  // tree state (streak/leaves) kept for display, but progress is driven by course lesson completion
   const tree = getTreeState ? getTreeState(studentId, course?.id) : { stage: 'seed', leaves: 0, streak: 0 };
   const mapping = { seed: '🌱', sprout: '🌿', sapling: '🌳', young: '🌲', mature: '🌳' };
 
-  // compute lesson-based progress: completedLessons / totalLessons
   let totalLessons = 0;
   try {
     if (course && Array.isArray(course.curriculum)) {
@@ -477,13 +447,11 @@ const CourseTreeCard = memo(({ course, currentStudent }) => {
 
   const lessonPct = totalLessons > 0 ? Math.min(100, Math.round((completed / totalLessons) * 100)) : null;
 
-  // fallback: if no lessons or totalLessons==0, fall back to leaves-based pct
   const maxLeavesByStage = { seed: 1, sprout: 3, sapling: 5, young: 7, mature: 9 };
   const leavesPct = Math.min(100, Math.round(((tree.leaves || 0) / (maxLeavesByStage[tree.stage] || 1)) * 100));
 
   const usedPct = (lessonPct !== null) ? lessonPct : leavesPct;
 
-  // Animated progress: play a smooth growth animation when usedPct increases
   const [progressValue, setProgressValue] = useState((usedPct || 0) / 100);
   const prevPctRef = useRef(usedPct || 0);
   useEffect(() => {
@@ -517,7 +485,6 @@ const CourseTreeCard = memo(({ course, currentStudent }) => {
       <Text style={[styles.subCardText, { marginTop: 8 }]}>المستوى: {tree.stage} · متتالية: {tree.streak} يوم · أوراق: {tree.leaves}</Text>
 
       <View style={{ marginTop: 10, alignItems: 'center' }}>
-        {/* Lottie animation for tree growth — driven by numeric progressValue */}
         <View style={{ width: 180, height: 180 }}>
           <LottieView
             source={require('../../tree growth without background.json')}
@@ -535,7 +502,6 @@ const CourseTreeCard = memo(({ course, currentStudent }) => {
   );
 });
 
-// Dedicated screen components have been moved to separate files for better structure.
 const LeaderboardCard = memo(({ students = [], currentStudentId }) => {
   const [filter, setFilter] = useState('weekly');
 
@@ -597,9 +563,6 @@ const LeaderboardCard = memo(({ students = [], currentStudentId }) => {
   );
 });
 
-// ==========================================
-// 7. نتائج الاختبارات
-// ==========================================
 const ParentExamResultCard = memo(({ item }) => {
   const isReviewed = item.score !== undefined && item.score !== null && item.score !== '';
   const displayScore = isReviewed ? `الدرجة: ${item.score}` : (item.status || 'قيد مراجعة المعلم 🟡');
@@ -632,9 +595,6 @@ const ParentExamResultCard = memo(({ item }) => {
   );
 });
 
-// ==========================================
-// 8. طلبات الإجازات
-// ==========================================
 const ParentRequestCard = memo(({ item }) => (
   <View style={styles.subCard}>
     <View style={styles.rowBetween}>
@@ -648,9 +608,6 @@ const ParentRequestCard = memo(({ item }) => (
   </View>
 ));
 
-// ==========================================
-// 9. تقارير المعلم
-// ==========================================
 const ReportCard = memo(({ report, studentEmoji }) => (
   <View style={styles.reportCard}>
     <View style={styles.rowBetween}>
@@ -662,13 +619,10 @@ const ReportCard = memo(({ report, studentEmoji }) => (
   </View>
 ));
 
-// ==========================================
-// 10. الكورسات (مستقلة بالكامل عن الاشتراك)
-// ==========================================
-const CourseCard = memo(({ course, isParent, colorScheme, onSelect, onOpenContent, userStars, onViewDetails }) => {
-  const isEnrolled = course.enrolled;
-  const availableBundles = Math.floor((userStars || 0) / 10); // each bundle = 10 stars
-  const maxBundlesByPrice = course && course.price ? Math.ceil((Number(course.price) || 0) / 5) : 0; // how many 5-gp bundles cover the price
+const CourseCard = memo(({ course, isParent, colorScheme, onSelect, onOpenContent, userStars, onViewDetails, hasCourseAccess }) => {
+  const isEnrolled = Boolean(hasCourseAccess);
+  const availableBundles = Math.floor((userStars || 0) / 10);
+  const maxBundlesByPrice = course && course.price ? Math.ceil((Number(course.price) || 0) / 5) : 0;
   const usableBundles = Math.min(availableBundles, maxBundlesByPrice);
   const discount = usableBundles * 5;
   const starsNeeded = usableBundles * 10;
@@ -703,10 +657,9 @@ const CourseCard = memo(({ course, isParent, colorScheme, onSelect, onOpenConten
             </TouchableOpacity>
           )}
           {isEnrolled ? (
-            // عندما يكون مشترك: عبارة عن زر يفتح محتوى الكورس للطالب أو متابعة التقدم للولي
             <TouchableOpacity style={[styles.mainBtn, isParent && { backgroundColor: '#0F382C' }]} onPress={() => {
-              if (isParent) onSelect(course); // فتح شاشة متابعة للولي
-              else onOpenContent?.(course); // فتح محتوى الكورس للطالب
+              if (isParent) onSelect(course);
+              else onOpenContent?.(course);
             }}>
               <Text style={styles.mainBtnText}>{isParent ? 'متابعة 📊' : 'محتوى الكورس 📚'}</Text>
             </TouchableOpacity>
@@ -726,30 +679,23 @@ const CourseCard = memo(({ course, isParent, colorScheme, onSelect, onOpenConten
   );
 });
 
-// ==========================================
-// 11. الشاشة الرئيسية (HomeScreen)
-// ==========================================
-export default function HomeScreen({ navigation, onSelectCourse, onViewProgress, onViewDetailsProp }) {
+export default function HomeScreen({ navigation, onViewDetailsProp }) {
   const { 
     user, 
     studentsDatabase = [], 
     logout, 
-    useStarsForDiscount, 
     addLeaveRequest, 
     leaveRequests = [], 
-    subscribeUser, 
     subscriptionData,
     parentNotifications = [],
-    markNotificationAsRead,
     deleteNotification,
-    getParentNotifications,
     getCourseProgress,
     sessionReports,
     getSessionReports,
     submitManualTransfer
   } = useContext(AuthContext);
 
-  const { courses, examResults, weeklyQuestion, answerWeeklyQuestion, enrollCourse } = useContext(CourseContext);
+  const { courses, examResults, weeklyQuestion, answerWeeklyQuestion, hasCourseAccess } = useContext(CourseContext);
 
   const [selectedCategory, setSelectedCategory] = useState('الكل');
   const [currentView, setCurrentView] = useState('home'); 
@@ -757,13 +703,26 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
   const [selectedProgressCourse, setSelectedProgressCourse] = useState(null);
   const [selectedContentCourse, setSelectedContentCourse] = useState(null);
 
-  // === إعدادات تقدير زمن انتهاء لكل كورس مشترك ===
-  // خرائط لتخزين الدروس المكتملة وعدد الجلسات لكل كورس على حدة
   const [lessonsCompletedMap, setLessonsCompletedMap] = useState({});
-  const [sessionsPerWeekMap, setSessionsPerWeekMap] = useState({});
-  const enrolledCourses = useMemo(() => courses.filter(c => c.enrolled), [courses]);
+  const [sessionsPerWeekMap] = useState({});
 
-  // مزامنة تلقائية لعدد الدروس المكتملة من الـ AuthContext so estimates reflect real progress
+  const isParent = user?.role === 'parent';
+  const currentBg = isParent ? BG_IMAGES.parent : BG_IMAGES.student;
+
+  const currentStudent = useMemo(() => {
+    return studentsDatabase.find(
+      st => st.id === user?.studentDbId || st.studentId === user?.studentId || st.name === user?.name
+    ) || { name: user?.name || 'الطالب', gender: user?.gender || 'boy', stars: user?.stars || 0, reports: [] };
+  }, [studentsDatabase, user]);
+
+  const courseAccessChecker = useCallback((course) => {
+    return hasCourseAccess ? hasCourseAccess(course, currentStudent) : false;
+  }, [hasCourseAccess, currentStudent]);
+
+  const enrolledCourses = useMemo(() => {
+    return (courses || []).filter((c) => courseAccessChecker(c));
+  }, [courses, courseAccessChecker]);
+
   useEffect(() => {
     if (!enrolledCourses || enrolledCourses.length === 0) return;
     const map = {};
@@ -773,7 +732,7 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
         const completed = progress.completedLessons || (progress.completedList ? progress.completedList.length : 0) || 0;
         map[ec.id] = completed;
       } catch (e) {
-        map[ec.id] = Number(lessonsCompletedMap[ec.id] || 0);
+        map[ec.id] = 0;
       }
     });
     setLessonsCompletedMap(prev => ({ ...prev, ...map }));
@@ -784,7 +743,6 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
     return course.curriculum.reduce((acc, unit) => acc + (unit.lessons ? unit.lessons.length : 0), 0);
   }, []);
 
-  // State للتحكم في فتح الـ PDF
   const [pdfModalVisible, setPdfModalVisible] = useState(false);
   const [selectedPdfUri, setSelectedPdfUri] = useState(null);
   const [selectedPdfHtml, setSelectedPdfHtml] = useState('');
@@ -796,15 +754,6 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
   const [paymentSenderNumber, setPaymentSenderNumber] = useState('');
   const [paymentReferenceCode, setPaymentReferenceCode] = useState('');
 
-  const isParent = user?.role === 'parent';
-  const currentBg = isParent ? BG_IMAGES.parent : BG_IMAGES.student;
-
-  const currentStudent = useMemo(() => {
-    return studentsDatabase.find(
-      st => st.id === user?.studentDbId || st.studentId === user?.studentId || st.name === user?.name
-    ) || { name: user?.name || 'الطالب', gender: user?.gender || 'boy', stars: user?.stars || 0, reports: [] };
-  }, [studentsDatabase, user]);
- 
   const studentSessionReports = useMemo(() => {
     const targetId = currentStudent?.studentId || currentStudent?.id;
     if (!targetId) return [];
@@ -888,19 +837,20 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
 
   const filteredCourses = selectedCategory === 'الكل' ? courses : courses?.filter(c => c.category === selectedCategory);
 
-  const handleCourseClick = useCallback((course, finalPrice, starsNeeded) => {
-    // ولي الأمر: فتح شاشة المتابعة إن كان مشترك
-    if (isParent && course.enrolled) {
-      setSelectedProgressCourse(course);
+  const handleCourseClick = useCallback((course, finalPrice) => {
+    const accessible = courseAccessChecker(course);
+    if (accessible) {
+      if (isParent) {
+        setSelectedProgressCourse(course);
+      } else {
+        setSelectedContentCourse(course);
+      }
       return;
     }
 
-    const priceText = finalPrice != null ? `${finalPrice} ج.م` : `${course.price || '---'} ج.م`;
     openPaymentModal({ target: 'course', course, amount: finalPrice });
+  }, [isParent, courseAccessChecker]);
 
-  }, [isParent, currentStudent, user, useStarsForDiscount, enrollCourse]);
-
-  // When user taps "التفاصيل" نستخدم التنقّل بدلاً من استبدال محتوى الصفحة
   const handleViewDetails = useCallback((course) => {
     if (onViewDetailsProp) {
       onViewDetailsProp(course);
@@ -992,7 +942,6 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
         </Modal>
 
         <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-          {/* شريط المستخدم والخروج */}
           <View style={[styles.userRow, isParent && styles.parentUserRow]}>
             <TouchableOpacity onPress={logout}><Text style={styles.logoutText}>خروج ➔</Text></TouchableOpacity>
             <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 10 }}>
@@ -1012,7 +961,6 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
             </View>
           </View>
 
-          {/* أزرار سريعة */}
           <View style={styles.quickActionsCard}>
             {!isParent && (
               <TouchableOpacity style={styles.quickBtn} onPress={() => setCurrentView('studentExam')}>
@@ -1089,17 +1037,14 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
                 );
               })
             )}
-
           </View>
 
-          {/* كارت الـ PDF للمعاينات وتقارير التسميع بالبوت */}
           <PdfSectionCard 
             pdfList={studentSessionReports}
             onOpenPdf={handleOpenPdf} 
             lastBotSession={studentSessionReports?.[0] || { studentName: currentStudent.name }} 
           />
 
-          {/* كارت الاشتراك الشهري الشامل الديناميكي */}
           <MonthlySubscriptionCard 
             isSubscribed={isSubscribed} 
             onSubscribe={handleSubscribeMonthly} 
@@ -1109,14 +1054,12 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
             planData={subscriptionData}
           />
 
-          {/* Render per-course habit trees on Home */}
           {enrolledCourses && enrolledCourses.length > 0 && (
             enrolledCourses.map(ec => (
               <CourseTreeCard key={ec.id} course={ec} currentStudent={currentStudent} />
             ))
           )}
 
-          {/* سؤال الأسبوع */}
           <WeeklyQuestionCard
             question={weeklyQuestion}
             onAnswer={(id, ans) => answerWeeklyQuestion?.({ questionId: id, studentId: currentStudent.studentId, studentName: currentStudent.name, answer: ans })}
@@ -1124,10 +1067,8 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
             isParent={isParent}
           />
 
-          {/* محتوى ولي الأمر */}
           {isParent && (
             <>
-              {/* 📬 قسم الإشعارات */}
               <View style={[styles.cardBox, styles.parentCardBox]}>
                 <Text style={styles.cardTitle}>📬 الإشعارات ({parentNotifications.length})</Text>
                 {parentNotifications.length === 0 ? (
@@ -1175,7 +1116,6 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
             </>
           )}
 
-          {/* الأقسام */}
           <Text style={[styles.sectionTitle, isParent && { color: '#FFD700', textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 }]}>{isParent ? '۞ الأقسام التعليمية' : '🎈 اختر القسم المفضل'}</Text>
           <ScrollView
             horizontal
@@ -1193,7 +1133,6 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
             ))}
           </ScrollView>
 
-          {/* الدورات */}
           <Text style={[styles.sectionTitle, isParent && { color: '#FFD700', textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 }]}>{isParent ? '❖ الدورات المقررة' : '🚀 رحلاتنا الإيمانية'}</Text>
           {filteredCourses?.map((course, i) => (
             <CourseCard 
@@ -1205,13 +1144,13 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
               onOpenContent={(c)=> setSelectedContentCourse(c)}
               userStars={userStars} 
               onViewDetails={handleViewDetails}
+              hasCourseAccess={courseAccessChecker(course)}
             />
           ))}
 
           <View style={{ height: 40 }} />
         </ScrollView>
 
-        {/* Modal لعرض ملف الـ PDF داخلياً */}
         <InternalPdfViewerModal 
           visible={pdfModalVisible}
           onClose={() => setPdfModalVisible(false)}
@@ -1224,17 +1163,11 @@ export default function HomeScreen({ navigation, onSelectCourse, onViewProgress,
   );
 }
 
-// ==========================================
-// 🎨 التنسيقات (StyleSheet الموحدة بالكامل)
-// ==========================================
 const styles = StyleSheet.create({
   bg: { flex: 1, resizeMode: 'cover', width: '100%', height: '100%' },
-  
   overlay: { flex: 1, backgroundColor: 'rgba(255, 248, 225, 0.85)' },
   parentOverlay: { flex: 1, backgroundColor: 'rgba(15, 56, 44, 0.88)' },
-
   body: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
-  
   userRow: { 
     flexDirection: 'row-reverse', 
     justifyContent: 'space-between', 
@@ -1255,7 +1188,6 @@ const styles = StyleSheet.create({
   },
   logoutText: { color: '#EF4444', fontWeight: '800', fontSize: 13 },
   roleText: { fontSize: 14, fontWeight: '800', color: '#1E293B' },
-  
   quickActionsCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 28,
@@ -1290,19 +1222,7 @@ const styles = StyleSheet.create({
   },
   quickBtnText: { color: '#0F172A', fontWeight: '900', fontSize: 14 },
   quickBtnSolidText: { color: '#FFFFFF' },
-  backButtonSmall: { alignSelf: 'flex-start', marginBottom: 10 },
-  backButtonText: { fontSize: 13, fontWeight: '800', color: '#0F382C' },
-  stationBadge: { minWidth: 80, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: '#CBD5E1', alignItems: 'center' },
-  stationReached: { backgroundColor: '#D1FAE5', borderColor: '#10B981' },
-  stationPending: { backgroundColor: '#E2E8F0', borderColor: '#94A3B8' },
-  stationText: { fontSize: 12, color: '#334155', fontWeight: '700' },
-  actionBtn: { backgroundColor: '#0F382C', paddingVertical: 12, borderRadius: 14, alignItems: 'center', marginTop: 10 },
-  actionBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-  smallAddBtn: { backgroundColor: '#0F382C', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12 },
-  smallAddBtnText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
-   
   sectionTitle: { fontSize: 16, fontWeight: '800', color: '#1E293B', textAlign: 'right', marginVertical: 10 },
-  
   catScrollContainer: { flexDirection: 'row-reverse', gap: 8, marginBottom: 16 },
   catChip: { 
     paddingHorizontal: 16, 
@@ -1317,7 +1237,6 @@ const styles = StyleSheet.create({
   catText: { fontSize: 12, color: '#0284C7', fontWeight: '700' },
   parentCatText: { color: '#0284C7' },
   activeCatText: { color: '#FFF' },
-  
   courseCard: { 
     borderRadius: 20, 
     padding: 16, 
@@ -1332,16 +1251,12 @@ const styles = StyleSheet.create({
   rating: { fontSize: 12, fontWeight: 'bold', color: '#D97706' },
   price: { fontSize: 14, fontWeight: '800', color: '#10B981' },
   oldPrice: { fontSize: 11, color: '#94A3B8', textDecorationLine: 'line-through' },
-  
   mainBtn: { backgroundColor: '#10B981', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
   mainBtnText: { color: '#FFF', fontWeight: '800', fontSize: 12 },
-  
   btnOutline: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: '#38BDF8' },
   btnText: { fontSize: 12, fontWeight: '800', color: '#0284C7' },
-  
   discountBox: { backgroundColor: '#FEF3C7', padding: 8, borderRadius: 8, marginBottom: 8 },
   discountText: { fontSize: 11, color: '#B45309', textAlign: 'center', fontWeight: 'bold' },
-  
   cardBox: { 
     backgroundColor: '#FFFFFF', 
     borderRadius: 24, 
@@ -1357,15 +1272,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF', 
     borderColor: '#FFD166', 
   },
-  
   rowBetween: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center' },
   cardTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A', textAlign: 'right' },
-  
   badge: { backgroundColor: '#E0F2FE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   badgeText: { fontSize: 11, fontWeight: '800', color: '#0369A1' },
-  
   subscriptionDesc: { fontSize: 13, color: '#475569', textAlign: 'right', marginVertical: 8, lineHeight: 20 },
-  
   simpleTimerRow: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 
@@ -1391,22 +1302,12 @@ const styles = StyleSheet.create({
   expiryDateText: { fontSize: 11, color: '#64748B', textAlign: 'right', fontWeight: '600' },
   reminderAlertText: { fontSize: 11, color: '#D97706', fontWeight: 'bold', textAlign: 'right' },
   expiredAlertText: { fontSize: 11, color: '#EF4444', fontWeight: 'bold', textAlign: 'right' },
-
   questionText: { fontSize: 14, color: '#1E293B', textAlign: 'right', marginVertical: 8, fontWeight: '700' },
   statusBox: { padding: 12, borderRadius: 12, marginVertical: 6 },
-  successBox: { backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#86EFAC' },
-  successTitle: { fontSize: 13, fontWeight: 'bold', color: '#166534', textAlign: 'right' },
-  successSub: { fontSize: 11, color: '#15803D', textAlign: 'right' },
-  errorBox: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' },
-  errorTitle: { fontSize: 13, fontWeight: 'bold', color: '#991B1B', textAlign: 'right' },
-  errorSub: { fontSize: 11, color: '#B91C1C', textAlign: 'right' },
-  cheerBox: { backgroundColor: '#FFF', padding: 8, borderRadius: 8, marginTop: 4 },
-  cheerText: { fontSize: 10, color: '#7F1D1D', textAlign: 'right', fontWeight: 'bold' },
   pendingBox: { backgroundColor: '#FEF3C7', padding: 10, borderRadius: 10 },
   pendingText: { fontSize: 11, color: '#B45309', textAlign: 'right', fontWeight: 'bold' },
   noticeBox: { backgroundColor: '#F1F5F9', padding: 10, borderRadius: 10 },
   noticeText: { fontSize: 11, color: '#475569', textAlign: 'right' },
-  
   optionBtn: { 
     backgroundColor: '#F8FAFC', 
     padding: 12, 
@@ -1419,7 +1320,6 @@ const styles = StyleSheet.create({
   selectedOpt: { backgroundColor: '#E0F2FE', borderColor: '#0284C7' },
   optionText: { fontSize: 13, color: '#334155', fontWeight: '600' },
   selectedOptText: { color: '#0369A1', fontWeight: '800' },
-  
   textInput: { 
     backgroundColor: '#F0F9FF', 
     borderWidth: 2, 
@@ -1431,7 +1331,6 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 13
   },
-  
   submitBtn: { 
     backgroundColor: '#10B981', 
     padding: 12, 
@@ -1442,36 +1341,29 @@ const styles = StyleSheet.create({
     marginTop: 8
   },
   submitBtnText: { color: '#FFF', fontSize: 14, fontWeight: '800' },
-  
   emptyText: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginVertical: 12 },
-  
   starBadge: { backgroundColor: '#FEF3C7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#FCD34D' },
   starBadgeText: { fontSize: 11, fontWeight: '800', color: '#B45309' },
   unreadBadge: { backgroundColor: '#EF4444', minWidth: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginHorizontal: 6 },
   unreadBadgeText: { color: '#fff', fontWeight: '900', fontSize: 12 },
-  
   subCardText: { fontSize: 11, color: '#64748B', textAlign: 'right' },
-  
   chartContainer: { flexDirection: 'row-reverse', justifyContent: 'space-around', alignItems: 'flex-end', height: 130, paddingTop: 10 },
   chartColumn: { alignItems: 'center', width: 50 },
   chartValue: { fontSize: 10, fontWeight: '800', color: '#D97706', marginBottom: 4 },
   barTrack: { width: 16, height: 85, backgroundColor: '#F1F5F9', borderRadius: 8, justifyContent: 'flex-end', overflow: 'hidden' },
   barFill: { width: '100%', backgroundColor: '#F59E0B', borderRadius: 8 },
   chartLabel: { fontSize: 10, color: '#64748B', marginTop: 6, fontWeight: 'bold' },
-  
   tabToggle: { flexDirection: 'row-reverse', backgroundColor: '#F1F5F9', borderRadius: 10, padding: 4, borderWidth: 1, borderColor: '#E2E8F0' },
   tab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   activeTab: { backgroundColor: '#FFFFFF', elevation: 2 },
   tabText: { fontSize: 11, color: '#64748B', fontWeight: '600' },
   activeTabText: { color: '#0F172A', fontWeight: '800' },
-  
   leaderItem: { flexDirection: 'row-reverse', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   highlightMe: { backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 6 },
   scoreBox: { backgroundColor: '#F0F9FF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#BAE6FD' },
   scoreNum: { fontSize: 11, fontWeight: '900', color: '#0284C7' },
   leaderName: { fontSize: 13, fontWeight: '800', color: '#0F172A' },
   leaderSub: { fontSize: 10, color: '#94A3B8' },
-  
   subCard: { backgroundColor: '#F8FAFC', padding: 10, borderRadius: 12, marginBottom: 8, borderWidth: 1, borderColor: '#E2E8F0', width: '100%', overflow: 'hidden' },
   subCardHeader: { flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 },
   subCardBody: { width: '100%', flexWrap: 'wrap' },
@@ -1481,7 +1373,6 @@ const styles = StyleSheet.create({
   pendingBadge: { backgroundColor: '#FEF3C7' },
   subCardTitle: { fontSize: 13, fontWeight: '800', color: '#0F172A' },
   reportCard: { backgroundColor: '#F0FDF4', padding: 10, borderRadius: 12, marginBottom: 8, borderWidth: 1.5, borderColor: '#BBF7D0' },
-  
   pdfItemBox: { 
     flexDirection: 'row-reverse', 
     alignItems: 'center', 
@@ -1497,15 +1388,6 @@ const styles = StyleSheet.create({
   pdfItemSub: { fontSize: 11, color: '#64748B', marginTop: 3, textAlign: 'right' },
   openPdfBtn: { backgroundColor: '#0284C7', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
   openPdfBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
-  
-  pdfContainer: { flex: 1, backgroundColor: '#002d96' },
-  pdfHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: '#1E293B' },
-  pdfHeaderTitle: { color: '#FFF', fontSize: 14, fontWeight: '800' },
-  closeBtn: { backgroundColor: '#EF4444', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  closeBtnText: { color: '#FFF', fontSize: 12, fontWeight: '800' },
-  
-  loadingBox: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.9)' },
-  loadingText: { marginTop: 10, fontSize: 12, color: '#0284C7', fontWeight: '800' },
   estimatorValueBox: { backgroundColor: '#FFFFFF', width: 140, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
   estimatorValue: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
   paymentModalBackdrop: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', padding: 18 },
@@ -1522,5 +1404,9 @@ const styles = StyleSheet.create({
   paymentFieldLabel: { fontSize: 12, color: '#475569', marginBottom: 6, textAlign: 'right' },
   paymentInput: { backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', paddingVertical: 10, paddingHorizontal: 12, color: '#0F172A', marginBottom: 10, textAlign: 'right' },
   paymentHintText: { fontSize: 12, color: '#64748B', marginBottom: 12, textAlign: 'right' },
-  paymentActionsRow: { flexDirection: 'row-reverse', justifyContent: 'space-between' }
+  paymentActionsRow: { flexDirection: 'row-reverse', justifyContent: 'space-between' },
+  addBtn: { backgroundColor: '#10B981', padding: 12, borderRadius: 12, alignItems: 'center' },
+  addBtnText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
+  cancelBtn: { backgroundColor: '#EF4444', padding: 12, borderRadius: 12, alignItems: 'center' },
+  cancelBtnText: { color: '#FFF', fontWeight: '800', fontSize: 13 }
 });

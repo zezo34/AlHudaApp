@@ -56,6 +56,7 @@ export const AuthProvider = ({ children }) => {
           const cleaned = (Array.isArray(parsed) ? parsed : []).map((s) => {
             const copy = { ...s };
             if (copy.courseProgress) delete copy.courseProgress;
+            copy.purchasedCourseIds = Array.isArray(copy.purchasedCourseIds) ? copy.purchasedCourseIds : [];
             return copy;
           });
           parsedStudentsList = cleaned;
@@ -218,11 +219,13 @@ export const AuthProvider = ({ children }) => {
 
       if (latestData) {
         setUser((prev) => {
+          const latestPurchasedCourseIds = Array.isArray(latestData.purchasedCourseIds) ? latestData.purchasedCourseIds : [];
           if (
             prev.isSubscribed === latestData.isSubscribed &&
             prev.stars === latestData.stars &&
             prev.subscriptionExpiry === latestData.subscriptionExpiry &&
-            JSON.stringify(prev.reports) === JSON.stringify(latestData.reports)
+            JSON.stringify(prev.reports) === JSON.stringify(latestData.reports) &&
+            JSON.stringify(prev.purchasedCourseIds) === JSON.stringify(latestPurchasedCourseIds)
           ) {
             return prev;
           }
@@ -233,6 +236,7 @@ export const AuthProvider = ({ children }) => {
             name: prev.role === 'parent' ? `ولي أمر ${latestData.name}` : latestData.name,
             studentName: latestData.name,
             isSubscribed: Boolean(latestData.isSubscribed),
+            purchasedCourseIds: Array.isArray(latestData.purchasedCourseIds) ? latestData.purchasedCourseIds : []
           };
         });
       }
@@ -314,6 +318,7 @@ export const AuthProvider = ({ children }) => {
       stars: 0,
       isSubscribed: false,
       subscriptionExpiry: null,
+      purchasedCourseIds: [],
       reports: reportText?.trim() ? [
         {
           id: Date.now().toString() + '-init',
@@ -344,6 +349,75 @@ export const AuthProvider = ({ children }) => {
     setUser((prevUser) => {
       if (prevUser && (prevUser.id === studentId || prevUser.studentId === studentId)) {
         return { ...prevUser, stars: Math.max(0, (prevUser.stars || 0) + starsAmount) };
+      }
+      return prevUser;
+    });
+  };
+
+  const grantCourseAccess = (studentId, courseId) => {
+    if (!studentId || !courseId) return;
+
+    setStudentsDatabase((prevStudents) =>
+      prevStudents.map((st) => {
+        if (st.id === studentId || st.studentId === studentId) {
+          const existingIds = Array.isArray(st.purchasedCourseIds) ? st.purchasedCourseIds : [];
+          if (existingIds.includes(courseId)) return st;
+          return { ...st, purchasedCourseIds: [...existingIds, courseId] };
+        }
+        return st;
+      })
+    );
+
+    setUser((prevUser) => {
+      if (!prevUser) return prevUser;
+      if (prevUser.id === studentId || prevUser.studentId === studentId) {
+        const existingIds = Array.isArray(prevUser.purchasedCourseIds) ? prevUser.purchasedCourseIds : [];
+        if (existingIds.includes(courseId)) return prevUser;
+        return { ...prevUser, purchasedCourseIds: [...existingIds, courseId] };
+      }
+      return prevUser;
+    });
+  };
+
+  const revokeCourseAccess = (studentId, courseId) => {
+    if (!studentId || !courseId) return;
+
+    setStudentsDatabase((prevStudents) =>
+      prevStudents.map((st) => {
+        if (st.id === studentId || st.studentId === studentId) {
+          const existingIds = Array.isArray(st.purchasedCourseIds) ? st.purchasedCourseIds : [];
+          return { ...st, purchasedCourseIds: existingIds.filter((id) => id !== courseId) };
+        }
+        return st;
+      })
+    );
+
+    setUser((prevUser) => {
+      if (!prevUser) return prevUser;
+      if (prevUser.id === studentId || prevUser.studentId === studentId) {
+        const existingIds = Array.isArray(prevUser.purchasedCourseIds) ? prevUser.purchasedCourseIds : [];
+        return { ...prevUser, purchasedCourseIds: existingIds.filter((id) => id !== courseId) };
+      }
+      return prevUser;
+    });
+  };
+
+  const clearStudentCourseAccess = (studentId) => {
+    if (!studentId) return;
+
+    setStudentsDatabase((prevStudents) =>
+      prevStudents.map((st) => {
+        if (st.id === studentId || st.studentId === studentId) {
+          return { ...st, purchasedCourseIds: [] };
+        }
+        return st;
+      })
+    );
+
+    setUser((prevUser) => {
+      if (!prevUser) return prevUser;
+      if (prevUser.id === studentId || prevUser.studentId === studentId) {
+        return { ...prevUser, purchasedCourseIds: [] };
       }
       return prevUser;
     });
@@ -405,26 +479,17 @@ export const AuthProvider = ({ children }) => {
   const updateLeaveStatus = (leaveId, newStatus) => {
     if (!leaveId || !newStatus) return;
 
-    setLeaveRequests((prevRequests) => {
-      const targetRequest = prevRequests.find((req) => req.id === leaveId);
-      if (!targetRequest) return prevRequests;
+    const targetRequest = leaveRequests.find((req) => req.id === leaveId);
+    if (!targetRequest) return;
 
-      if (newStatus === 'مقبولة ✅' && targetRequest.status !== 'مقبولة ✅') {
-        const cost = targetRequest.cost || 30;
-        addStarsToStudent(targetRequest.studentId, -cost);
-      }
+    if (newStatus === 'مقبولة ✅' && targetRequest.status !== 'مقبولة ✅') {
+      const cost = targetRequest.cost || 30;
+      addStarsToStudent(targetRequest.studentId, -cost);
+    }
 
-      return prevRequests.map((req) => {
-        if (req.id === leaveId) {
-          return {
-            ...req,
-            status: newStatus,
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return req;
-      });
-    });
+    setLeaveRequests((prevRequests) =>
+      prevRequests.filter((req) => req.id !== leaveId)
+    );
   };
 
   // 📝 التقارير
@@ -448,20 +513,78 @@ export const AuthProvider = ({ children }) => {
     );
   };
 
-  // 🗑️ حذف حساب الطالب بالكامل
+  // 🗑️ حذف حساب الطالب بالكامل مع تنظيف كل بياناته المعلقة
   const deleteStudent = (studentId) => {
     if (!studentId) return { success: false, message: 'معرّف الطالب غير صالح' };
 
-    setStudentsDatabase((prev) => prev.filter(s => !(s.id === studentId || s.studentId === studentId)));
+    const lookupId = studentId?.toString().trim().toUpperCase();
+    const targetStudent = studentsDatabase.find(
+      (s) => (s.id || '').toString().trim().toUpperCase() === lookupId || (s.studentId || '').toString().trim().toUpperCase() === lookupId
+    );
 
-    // If currently logged-in user is this student or parent of the student, log them out
+    if (!targetStudent) {
+      return { success: false, message: 'لم يتم العثور على الطالب.' };
+    }
+
+    const targetId = (targetStudent.id || '').toString().trim().toUpperCase();
+    const targetCode = (targetStudent.studentId || '').toString().trim().toUpperCase();
+    const targetName = (targetStudent.name || '').toString().trim().toLowerCase();
+
+    // 1. مسح الطالب من قاعدة البيانات
+    setStudentsDatabase((prev) =>
+      prev.filter(
+        (s) => {
+          const currentId = (s.id || '').toString().trim().toUpperCase();
+          const currentCode = (s.studentId || '').toString().trim().toUpperCase();
+          return currentId !== targetId && currentCode !== targetId && currentId !== targetCode && currentCode !== targetCode;
+        }
+      )
+    );
+
+    // 2. مسح طلبات الدفع
+    setPaymentRequests((prev) =>
+      prev.filter((req) => {
+        const reqStudentId = (req.studentId || '').toString().trim().toUpperCase();
+        const reqStudentName = (req.studentName || '').toString().trim().toLowerCase();
+        return reqStudentId !== targetId && reqStudentId !== targetCode && reqStudentName !== targetName;
+      })
+    );
+
+    // 3. مسح طلبات الإجازة
+    setLeaveRequests((prev) =>
+      prev.filter((leave) => {
+        const leaveStudentId = (leave.studentId || '').toString().trim().toUpperCase();
+        const leaveStudentName = (leave.studentName || '').toString().trim().toLowerCase();
+        return leaveStudentId !== targetId && leaveStudentId !== targetCode && leaveStudentName !== targetName;
+      })
+    );
+
+    // 4. مسح تقارير الجلسات والتسميع
+    setSessionReports((prev) =>
+      prev.filter((report) => {
+        const reportStudentId = (report.studentId || '').toString().trim().toUpperCase();
+        const reportStudentName = (report.studentName || '').toString().trim().toLowerCase();
+        return reportStudentId !== targetId && reportStudentId !== targetCode && reportStudentName !== targetName;
+      })
+    );
+
+    // 5. مسح إشعارات ولي الأمر
+    setParentNotifications((prev) =>
+      prev.filter((notif) => {
+        const notifStudentId = (notif.parentId || '').toString().trim().toUpperCase();
+        const notifStudentName = (notif.studentName || '').toString().trim().toLowerCase();
+        return notifStudentId !== targetId && notifStudentId !== targetCode && notifStudentName !== targetName;
+      })
+    );
+
+    // 6. تسجيل الخروج إذا كان الطالب المحدد هو المسجل حالياً
     setUser((prevUser) => {
       if (!prevUser) return prevUser;
-      if (prevUser.id === studentId || prevUser.studentId === studentId) return null;
+      if (prevUser.id === targetStudent.id || prevUser.studentId === targetStudent.studentId) return null;
       return prevUser;
     });
 
-    return { success: true, message: 'تم حذف حساب الطالب.' };
+    return { success: true, message: 'تم حذف حساب الطالب وكل البيانات المرتبطة به.' };
   };
 
   // 🗑️ حذف تقرير
@@ -554,6 +677,7 @@ export const AuthProvider = ({ children }) => {
           stars: foundUser.stars || 0,
           isSubscribed: Boolean(foundUser.isSubscribed),
           subscriptionExpiry: foundUser.subscriptionExpiry || null,
+          purchasedCourseIds: Array.isArray(foundUser.purchasedCourseIds) ? foundUser.purchasedCourseIds : [],
           reports: foundUser.reports || []
         });
 
@@ -663,8 +787,8 @@ export const AuthProvider = ({ children }) => {
     const found = paymentRequests.find(r => r.id === requestId);
     if (!found) return { success: false, message: 'لم يتم العثور على طلب الدفع' };
 
-    // mark as accepted
-    setPaymentRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'accepted', reviewedAt: new Date().toISOString(), reviewer: opts.reviewer || 'admin' } : r));
+    // Remove the processed request immediately so it disappears from pending lists
+    setPaymentRequests(prev => prev.filter(r => r.id !== requestId));
 
     // If target is subscription, grant 30-day subscription from today
     try {
@@ -674,28 +798,30 @@ export const AuthProvider = ({ children }) => {
         const expiry = new Date(start.getTime() + (30 * 24 * 60 * 60 * 1000));
         subscribeUser(found.studentId, { start: start.toISOString(), expiry: expiry.toISOString() }, true);
       }
-    } catch (e) {
-      console.warn('approvePaymentRequest subscribeUser failed', e);
-    }
 
+      if (found.target === 'course' && found.courseId) {
+        grantCourseAccess(found.studentId, found.courseId);
+      }
+    } catch (e) {
+      console.warn('approvePaymentRequest subscribeUser or grantCourseAccess failed', e);
+    }
+ 
     return { success: true };
   };
 
   const rejectPaymentRequest = (requestId, reason = '') => {
     const found = paymentRequests.find(r => r.id === requestId);
     if (!found) return { success: false, message: 'لم يتم العثور على طلب الدفع' };
-    setPaymentRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'rejected', reviewedAt: new Date().toISOString(), rejectionReason: reason || null } : r));
+    setPaymentRequests(prev => prev.filter(r => r.id !== requestId));
     return { success: true };
   };
 
   // -----------------------------
   // Reward wheel: تعريف الجوائز و منطق السحب
   // -----------------------------
-  // Reward wheel: only point rewards from 5 to 25 distributed across the wheel (12 sectors)
   const rewardDefinitions = (() => {
     const values = [5, 10, 15, 20, 25];
     const arr = [];
-    // create 12 sectors cycling through the values
     for (let i = 0; i < 12; i++) {
       const val = values[i % values.length];
       arr.push({ id: `points_${val}_${i}`, label: `+${val} نقاط`, type: 'points', amount: val, weight: 1 });
@@ -715,7 +841,6 @@ export const AuthProvider = ({ children }) => {
     return items[items.length - 1];
   };
 
-  // Apply a granted reward to a student and persist it in studentsDatabase
   const grantRewardToStudent = (studentId, reward) => {
     if (!studentId || !reward) return null;
 
@@ -724,7 +849,6 @@ export const AuthProvider = ({ children }) => {
         if (st.id === studentId || st.studentId === studentId) {
           const copy = { ...st };
 
-          // ensure arrays exist
           copy.badges = Array.isArray(copy.badges) ? copy.badges : (copy.badges ? [copy.badges] : []);
 
           if (reward.type === 'points') {
@@ -734,7 +858,6 @@ export const AuthProvider = ({ children }) => {
             const id = reward.badgeId || `badge_${Date.now()}`;
             if (!copy.badges.includes(id)) copy.badges.push(id);
           } else if (reward.type === 'tempProfile') {
-            // set a temporary profile style with expiry
             const expiresAt = Date.now() + ((reward.durationHours || 24) * 60 * 60 * 1000);
             copy.tempProfile = { style: reward.style || {}, expiresAt };
           } else if (reward.type === 'doublePoints') {
@@ -742,7 +865,6 @@ export const AuthProvider = ({ children }) => {
             copy.doublePointsUntil = expiresAt;
           }
 
-          // record a reward history entry
           copy.rewardHistory = Array.isArray(copy.rewardHistory) ? copy.rewardHistory : [];
           copy.rewardHistory.unshift({ id: `rw_${Date.now()}`, rewardId: reward.id, label: reward.label, grantedAt: new Date().toISOString() });
 
@@ -752,7 +874,6 @@ export const AuthProvider = ({ children }) => {
       });
     });
 
-    // update current user object if it refers to the same student
     setUser(prev => {
       if (!prev) return prev;
       if (prev.id === studentId || prev.studentId === studentId) {
@@ -782,16 +903,13 @@ export const AuthProvider = ({ children }) => {
     return reward;
   };
 
-  // Public function: run the reward wheel for a student (returns the reward chosen)
   const spinRewardWheel = (studentId) => {
     const picked = chooseWeightedRandom(rewardDefinitions);
     if (!picked) return null;
-    // grant and return
     grantRewardToStudent(studentId, picked);
     return picked;
   };
 
-  // Helper: choose an index (and item) according to weights so UI can target a segment
   const chooseRewardIndex = () => {
     const items = rewardDefinitions;
     const total = (items || []).reduce((s, it) => s + (it.weight || 0), 0);
@@ -805,17 +923,16 @@ export const AuthProvider = ({ children }) => {
   };
 
   // -----------------------------
-  // Habit-tree (شجرة الحفظ): تتبع ممارسات الطالب اليومية وبناء الشجرة
+  // Habit-tree (شجرة الحفظ)
   // -----------------------------
   const normalizeDateKey = (d) => {
     const dt = (d ? new Date(d) : new Date());
     const y = dt.getFullYear();
     const m = String(dt.getMonth() + 1).padStart(2, '0');
     const day = String(dt.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`; // YYYY-MM-DD
+    return `${y}-${m}-${day}`;
   };
 
-  // compute days difference between two date keys
   const daysBetweenKeys = (aKey, bKey) => {
     if (!aKey || !bKey) return Infinity;
     const a = new Date(aKey + 'T00:00:00');
@@ -824,19 +941,15 @@ export const AuthProvider = ({ children }) => {
     return Math.floor(ms / (24 * 60 * 60 * 1000));
   };
 
-  // Record that the student practiced on a given date for a specific course (defaults to today).
-  // Returns the updated tree state for that course for the student.
   const recordDailyPractice = (studentId, when = Date.now(), courseId = 'global') => {
     if (!studentId) return null;
     const key = normalizeDateKey(when);
 
-    // update studentsDatabase
     setStudentsDatabase(prev => {
       return prev.map(st => {
         if (st.id === studentId || st.studentId === studentId) {
           const copy = { ...st };
 
-          // per-course practice storage: practiceByCourse: { [courseId]: { practiceDates: [], lastPracticeDate, streak, tree } }
           copy.practiceByCourse = copy.practiceByCourse && typeof copy.practiceByCourse === 'object' ? { ...copy.practiceByCourse } : {};
           const bucket = copy.practiceByCourse[courseId] ? { ...copy.practiceByCourse[courseId] } : { practiceDates: [] };
 
@@ -847,7 +960,6 @@ export const AuthProvider = ({ children }) => {
           }
           bucket.lastPracticeDate = bucket.practiceDates[0] || null;
 
-          // compute streak for this course
           const datesSet = new Set(bucket.practiceDates);
           let streak = 0;
           if (bucket.lastPracticeDate) {
@@ -862,12 +974,10 @@ export const AuthProvider = ({ children }) => {
           }
           bucket.streak = streak;
 
-          // compute missed days since last practice relative to today
           const todayKey = normalizeDateKey(new Date());
           const daysSinceLast = daysBetweenKeys(bucket.lastPracticeDate, todayKey);
           const missedDays = Math.max(0, daysSinceLast - 0);
 
-          // compute tree stage from streak
           let stage = 'seed';
           if (streak >= 14) stage = 'mature';
           else if (streak >= 7) stage = 'young';
@@ -882,9 +992,7 @@ export const AuthProvider = ({ children }) => {
 
           copy.practiceByCourse[courseId] = bucket;
 
-          // update current user object only for global fields (do not pollute user with course-specific buckets)
           if (user && (user.id === studentId || user.studentId === studentId)) {
-            // shallow update of a course-specific view on user
             setUser(prevUser => ({ ...prevUser, practiceByCourse: { ...(prevUser?.practiceByCourse || {}), [courseId]: bucket } }));
           }
 
@@ -894,7 +1002,6 @@ export const AuthProvider = ({ children }) => {
       });
     });
 
-    // return computed tree for convenience
     const st = studentsDatabase.find(s => s.id === studentId || s.studentId === studentId);
     if (!st) return null;
     const bucket = st.practiceByCourse && st.practiceByCourse[courseId];
@@ -910,10 +1017,6 @@ export const AuthProvider = ({ children }) => {
     if (!bucket) return { stage: 'seed', leaves: 0, streak: 0, lastPracticeDate: null };
     return { stage: bucket.tree?.stage || 'seed', leaves: bucket.tree?.leaves || 0, streak: bucket.streak || 0, lastPracticeDate: bucket.lastPracticeDate || null };
   };
-
-  // -----------------------------
-  // Expose the reward and tree APIs via context
-  // -----------------------------
 
   return (
     <AuthContext.Provider 
@@ -944,24 +1047,24 @@ export const AuthProvider = ({ children }) => {
         sessionReports,
         cancelSubscriptionForStudent,
         setSubscriptionPrice,
-        // reward APIs
         rewardDefinitions,
         spinRewardWheel,
         chooseRewardIndex,
         grantRewardToStudent,
-        // tree APIs
         recordDailyPractice,
         getTreeState,
         rememberedCredentials,
         saveRememberedCredentials,
-       clearRememberedCredentials,
-       // students & payments
-       studentsDatabase,
-       paymentRequests,
-       submitManualTransfer,
-       approvePaymentRequest,
-       rejectPaymentRequest,
-       deleteStudent
+        clearRememberedCredentials,
+        studentsDatabase,
+        paymentRequests,
+        submitManualTransfer,
+        approvePaymentRequest,
+        rejectPaymentRequest,
+        grantCourseAccess,
+        revokeCourseAccess,
+        clearStudentCourseAccess,
+        deleteStudent
       }}
     >
       {children}

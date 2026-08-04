@@ -452,6 +452,7 @@ export default function AdminDashboardScreen({ onBack }) {
     deleteWeeklyQuestion: removeWeeklyQuestion, 
     examResults = [],
     gradeExamAnswer,
+    removeStudentCourseData,
     setCourses,
     enrollCourse,
   } = useContext(CourseContext) || {};
@@ -802,7 +803,10 @@ export default function AdminDashboardScreen({ onBack }) {
   };
 
   const filteredLeaveRequests = useMemo(() => {
-    return leaveRequests.filter(l => !hiddenLeaveIds.includes(l.id));
+    return leaveRequests.filter(l => {
+      const isPending = !l.status || l.status.includes('قيد المراجعة') || l.status === 'pending';
+      return isPending && !hiddenLeaveIds.includes(l.id);
+    });
   }, [leaveRequests, hiddenLeaveIds]);
 
   const filteredExamResults = useMemo(() => {
@@ -814,8 +818,14 @@ export default function AdminDashboardScreen({ onBack }) {
     });
   }, [examResults, hiddenExamResultIds]);
 
+  const pendingPaymentRequests = useMemo(() => {
+    return (paymentRequests || []).filter(req => {
+      return !req.status || req.status === 'pending' || req.status.includes('قيد المراجعة');
+    });
+  }, [paymentRequests]);
+
   const pendingCount = useMemo(() => {
-    return filteredLeaveRequests.filter(l => !l.status || l.status.includes('قيد المراجعة')).length;
+    return filteredLeaveRequests.length;
   }, [filteredLeaveRequests]);
 
   const activeData = useMemo(() => {
@@ -910,10 +920,10 @@ export default function AdminDashboardScreen({ onBack }) {
                 {/* قائمة طلبات التحويل اليدوي للتحقق */}
                 <View style={{ marginTop: 12 }}>
                   <Text style={{ fontWeight: '900', color: '#0F382C', marginBottom: 8 }}>طلبات الدفع اليدوية المعلقة</Text>
-                  {paymentRequests && paymentRequests.length === 0 ? (
+                  {pendingPaymentRequests && pendingPaymentRequests.length === 0 ? (
                     <Text style={{ color: '#64748B' }}>لا توجد طلبات دفع حالياً.</Text>
                   ) : (
-                    (paymentRequests || []).map((req) => (
+                    (pendingPaymentRequests || []).map((req) => (
                       <View key={req.id} style={{ backgroundColor: '#FFF', padding: 10, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
                         <View style={{ flexDirection: 'row-reverse', justifyContent: 'space-between' }}>
                           <View>
@@ -1079,7 +1089,7 @@ export default function AdminDashboardScreen({ onBack }) {
                 if (activeTab === 'students') {
                   const isGirl = isGirlStudent(item);
                   return (
-                    <StudentCardItem 
+                      <StudentCardItem 
                       st={item} 
                       isGirl={isGirl} 
                       onDeleteReport={handleDeleteReport} 
@@ -1088,6 +1098,9 @@ export default function AdminDashboardScreen({ onBack }) {
                       onDeleteStudent={(id) => {
                         if (!deleteStudent) return Alert.alert('خطأ', 'دالة الحذف غير متاحة');
                         const res = deleteStudent(id);
+                        if (typeof removeStudentCourseData === 'function') {
+                          removeStudentCourseData(id);
+                        }
                         Alert.alert('تم', (res && res.message) ? res.message : 'تم حذف الحساب.');
                       }}
                       onCancelSubscription={(id) => {
