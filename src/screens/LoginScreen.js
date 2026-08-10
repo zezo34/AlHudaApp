@@ -184,7 +184,7 @@ export default function LoginScreen() {
                 
                 <TextInput
                   style={styles.input}
-                  placeholder="اسم المستخدم"
+                  placeholder="اسم المستخدم (admin) أو البريد الإلكتروني"
                   placeholderTextColor="#A1A1AA"
                   value={adminUsername}
                   onChangeText={setAdminUsername}
@@ -234,6 +234,8 @@ export default function LoginScreen() {
                 {isAdminMode ? '← العودة لتسجيل الدخول' : 'الدخول كمسؤول النظام'}
               </Text>
             </TouchableOpacity>
+
+            <Text style={styles.footerCreditText}>App created by Scorpion 🦂</Text>
           </View>
 
         </View>
@@ -309,4 +311,5 @@ const styles = StyleSheet.create({
   adminTitle: { color: '#0F382C', fontWeight: '700', fontSize: 15, textAlign: 'center', marginBottom: 14 },
   adminToggle: { marginTop: 14, alignItems: 'center' },
   adminToggleText: { color: '#64748B', fontSize: 12, textDecorationLine: 'underline' },
+  footerCreditText: { marginTop: 18, color: '#94A3B8', fontSize: 11, textAlign: 'center' },
 });

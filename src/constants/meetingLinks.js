@@ -1,1 +1,3 @@
-export const TEAM_MEETING_URL = 'https://teams.microsoft.com/meet/355723221307831?p=TCP14dCNtx7a0Tk0kL';
+export const MEETING_URL = 'https://meet.google.com/vkx-gfdc-hyn';
+// Backward-compatible alias (old name referenced in some screens).
+export const TEAM_MEETING_URL = MEETING_URL;

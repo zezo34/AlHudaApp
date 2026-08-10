@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import InternalPdfViewerModal from '../components/InternalPdfViewerModal';
 import { AuthContext } from '../context/AuthContext';
+import { lessonHasPdf, resolveLessonPdfUri } from '../services/pdfAssetResolver';
 
 export default function StudentContentScreen({ course, onBack }) {
   const { 
@@ -119,8 +120,9 @@ export default function StudentContentScreen({ course, onBack }) {
   };
 
   // فتح ملف الـ PDF الداخلي بشكل مرن للتعامل مع مختلف تسميات الخاصية
-  const openLessonPdf = (lesson) => {
-    const uri = lesson?.pdfUri || lesson?.pdfUrl || lesson?.url || lesson?.fileUri;
+  // (يشمل الكتب المدمجة داخل التطبيق عبر pdfAssetResolver)
+  const openLessonPdf = async (lesson) => {
+    const uri = await resolveLessonPdfUri(lesson);
     if (!uri) {
       Alert.alert('تنبيه 💡', 'هذا الدرس لا يحتوي على ملف PDF لفتحه.');
       return;
@@ -229,8 +231,8 @@ export default function StudentContentScreen({ course, onBack }) {
                 const lessonId = `${course.id}::${unit.id || idx}::${j}`;
                 const lessonTitle = typeof lesson === 'string' ? lesson : (lesson.title || lesson.pdfName || 'درس بدون عنوان');
                 
-                // تحقق شاممل لوجود PDF
-                const hasPdf = lesson && typeof lesson === 'object' && Boolean(lesson.pdfUri || lesson.pdfUrl || lesson.url || lesson.fileUri);
+                // تحقق شامل لوجود PDF (بما فيه الكتب المدمجة)
+                const hasPdf = lessonHasPdf(lesson);
                 
                 return (
                   <View key={j} style={styles.lessonRow}>

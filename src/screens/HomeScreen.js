@@ -13,6 +13,7 @@ import {
   Modal
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from '../context/AuthContext';
 import LottieView from 'lottie-react-native';
 import { CourseContext } from '../context/CourseContext';
@@ -260,126 +261,6 @@ const PdfSectionCard = memo(({ pdfList = [], onOpenPdf, lastBotSession }) => {
   );
 });
 
-const WeeklyQuestionCard = memo(({ questions = [], question, onAnswer, studentId, isParent }) => {
-  const [selectedOptionIndex, setSelectedOptionIndex] = useState(null);
-  const [textAnswer, setTextAnswer] = useState('');
-  const [isSubmitted, setIsSubmitted] = useState(false);
-
-  const questionsList = Array.isArray(questions) && questions.length > 0 
-    ? questions 
-    : (question ? [question] : []);
-
-  const activeParentQuestions = questionsList.filter(q => {
-    const studentAns = q?.answers?.find(a => a.studentId === studentId);
-    const answerStatus = String(studentAns?.status || '').trim();
-    const pendingReview = answerStatus.includes('قيد المراجعة');
-    const reviewed = Boolean(
-      q?.isReviewedByTeacher ||
-      studentAns?.reviewed ||
-      studentAns?.isReviewed ||
-      (answerStatus && !pendingReview) ||
-      studentAns?.isCorrect !== undefined
-    );
-    return !reviewed;
-  });
-
-  const currentQ = isParent ? activeParentQuestions[0] : (question || questionsList[0]);
-  const studentAns = currentQ?.answers?.find(a => a.studentId === studentId);
-  const answerStatus = String(studentAns?.status || '').trim();
-  const isReviewPending = answerStatus.includes('قيد المراجعة');
-  const isReviewComplete = Boolean(
-    currentQ?.isReviewedByTeacher ||
-    studentAns?.reviewed ||
-    studentAns?.isReviewed ||
-    (answerStatus && !isReviewPending) ||
-    studentAns?.isCorrect !== undefined
-  );
-  const isAnswered = Boolean(studentAns) || isSubmitted;
-  const isMcq = currentQ?.type === 'mcq' && Array.isArray(currentQ?.options) && currentQ.options.length > 0;
-  const selectedOption = isMcq && selectedOptionIndex != null ? currentQ.options[selectedOptionIndex] : null;
-
-  useEffect(() => {
-    setIsSubmitted(Boolean(studentAns));
-  }, [studentAns, currentQ]);
-
-  useEffect(() => {
-    setSelectedOptionIndex(null);
-    setTextAnswer('');
-  }, [currentQ?.id]);
-
-  if (isReviewComplete || (isParent && activeParentQuestions.length === 0)) return null;
-
-  if (!currentQ) {
-    return (
-      <View style={[styles.cardBox, isParent && styles.parentCardBox]}>
-        <Text style={styles.cardTitle}>❓ سؤال الأسبوع</Text>
-        <Text style={styles.emptyText}>لا يوجد سؤال نشط حالياً.. انتظرونا قريباً! ⏳</Text>
-      </View>
-    );
-  }
-
-  const handleSubmit = () => {
-    const answer = isMcq ? selectedOption : textAnswer.trim();
-    if (!answer) {
-      Alert.alert('تنبيه ⚠️', 'برجاء اختيار إجابة أو كتابة الرد أولاً!');
-      return;
-    }
-    onAnswer?.(currentQ.id, answer);
-    setIsSubmitted(true);
-    Alert.alert('تم الإرسال بنجاح! 🚀', isMcq ? 'تم تقييم إجابتك تلقائياً.' : 'تم إرسال إجابتك للمعلم وهي الآن قيد المراجعة والتصحيح 🟡');
-  };
-
-  return (
-    <View style={[styles.cardBox, isParent && styles.parentCardBox]}>
-      <View style={styles.rowBetween}>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>⭐ +{currentQ.rewardStars || 15} نجمة</Text>
-        </View>
-        <Text style={styles.cardTitle}>❓ سؤال الأسبوع التفاعلي</Text>
-      </View>
-
-      <Text style={styles.questionText}>{currentQ.title || currentQ.question}</Text>
-
-      {isAnswered ? (
-        <View style={[styles.statusBox, styles.pendingBox]}>
-          <Text style={styles.pendingText}>🟡 تم إرسال إجابتك بنجاح! وهي الآن قيد مراجعة المعلم وتصحيحها.</Text>
-        </View>
-      ) : isParent ? (
-        <View style={styles.noticeBox}>
-          <Text style={styles.noticeText}>👨‍👩‍👧‍👦 لم يجب الطالب على هذا السؤال بعد. سيختفي السؤال من هنا فور تصحيح المعلم له.</Text>
-        </View>
-      ) : (
-        <View style={{ gap: 10 }}>
-          {isMcq ? (
-            currentQ.options.map((opt, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={[styles.optionBtn, selectedOptionIndex === idx && styles.selectedOpt]}
-                onPress={() => setSelectedOptionIndex(idx)}
-              >
-                <Text style={[styles.optionText, selectedOptionIndex === idx && styles.selectedOptText]}>{opt}</Text>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <TextInput
-              style={styles.textInput}
-              placeholder="اكتب إجابتك هنا..."
-              placeholderTextColor="#94A3B8"
-              value={textAnswer}
-              onChangeText={setTextAnswer}
-              multiline
-            />
-          )}
-
-          <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-            <Text style={styles.submitBtnText}>إرسال الإجابة 🚀</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-});
-
 const WeeklyStarsChart = memo(({ currentStudent }) => {
   const totalStars = currentStudent?.stars || 0;
 
@@ -574,6 +455,11 @@ const ParentExamResultCard = memo(({ item }) => {
           <Text style={[styles.subCardTitle, styles.flexShrink]} numberOfLines={0}>
             📝 {item.examTitle || item.title || 'اختبار'}
           </Text>
+          <View style={[styles.examTypeBadge, item.isWeekly ? styles.examTypeBadgeWeekly : styles.examTypeBadgeRegular]}>
+            <Text style={[styles.examTypeBadgeText, item.isWeekly ? styles.examTypeBadgeWeeklyText : styles.examTypeBadgeRegularText]}>
+              {item.isWeekly ? '📅 سؤال الأسبوع' : '📝 اختبار عادي'}
+            </Text>
+          </View>
         </View>
         <View style={styles.subCardBadgeWrapper}>
           <View style={[styles.badge, !isReviewed && styles.pendingBadge]}>
@@ -590,6 +476,13 @@ const ParentExamResultCard = memo(({ item }) => {
         <Text style={[styles.subCardText, styles.flexShrink]} numberOfLines={0}>
           💡 إجابة الطالب: {item.answer || item.studentAnswer || 'تم التسليم'}
         </Text>
+        {item.teacherFeedback ? (
+          <View style={styles.teacherFeedbackBox}>
+            <Text style={styles.teacherFeedbackText} numberOfLines={0}>
+              💬 ملاحظة المعلم: {item.teacherFeedback}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -692,10 +585,14 @@ export default function HomeScreen({ navigation, onViewDetailsProp }) {
     getCourseProgress,
     sessionReports,
     getSessionReports,
-    submitManualTransfer
+    submitManualTransfer,
+    appSettings
   } = useContext(AuthContext);
 
-  const { courses, examResults, weeklyQuestion, answerWeeklyQuestion, hasCourseAccess } = useContext(CourseContext);
+  // رقم المحفظة يُقرأ من app_settings (wallet_number) مع fallback للرقم القديم.
+  const walletNumber = appSettings?.wallet_number || '01093684797';
+
+  const { courses, examResults, hasCourseAccess, getStudentExamResults } = useContext(CourseContext);
 
   const [selectedCategory, setSelectedCategory] = useState('الكل');
   const [currentView, setCurrentView] = useState('home'); 
@@ -818,11 +715,55 @@ export default function HomeScreen({ navigation, onViewDetailsProp }) {
     openPaymentModal({ target: 'subscription', amount: Number(subscriptionData?.price) || 199 });
   };
 
+  // ⏰ تنبيه تلقائي داخل التطبيق قبل انتهاء الاشتراك (يوم أو يومين) — يُعرض مرة
+  // واحدة يومياً، وزر "تجديد الآن" ينقلك مباشرة لصفحة الدفع.
+  useEffect(() => {
+    if (!isSubscribed || !subscriptionExpiry) return;
+    const expiryMs = new Date(subscriptionExpiry).getTime();
+    if (!Number.isFinite(expiryMs) || expiryMs <= Date.now()) return;
+    const daysLeft = Math.ceil((expiryMs - Date.now()) / (24 * 60 * 60 * 1000));
+    if (daysLeft > 2) return;
+
+    const promptKey = `@alhuda_renewal_prompted:${currentStudent?.studentId || user?.id || 'default'}`;
+    (async () => {
+      try {
+        const last = await AsyncStorage.getItem(promptKey);
+        const today = new Date().toDateString();
+        if (last === today) return; // تم التنبيه اليوم بالفعل
+        await AsyncStorage.setItem(promptKey, today);
+        const daysText = daysLeft === 1 ? 'يوم واحد' : 'يومين';
+        Alert.alert(
+          '⏰ تذكير بتجديد الاشتراك',
+          `اشتراكك ينتهي خلال ${daysText} (${new Date(subscriptionExpiry).toLocaleDateString('ar-EG')}).\n\nجدّد اشتراكك الآن لاستمرار وصولك لجميع الكورسات والمميزات.`,
+          [
+            { text: 'لاحقاً', style: 'cancel' },
+            { text: 'تجديد الآن 🔄', onPress: handleSubscribeMonthly },
+          ]
+        );
+      } catch (e) {
+        /* ignore */
+      }
+    })();
+    // (الحراسة اليومية تمنع تكرار التنبيه حتى مع إعادة تشغيل التأثير)
+  }, [isSubscribed, subscriptionExpiry, currentStudent?.studentId, user?.id, handleSubscribeMonthly]);
+
   const isGirl = currentStudent.gender === 'girl';
   const studentEmoji = isGirl ? '👧' : '👦';
   const userStars = currentStudent.stars || 0;
 
-  const studentExams = examResults || [];
+  // نتائج الطالب (المسجل دخوله) فقط — ممنوع نتائج طلاب تانيين تظهر في لوحة ولي الأمر.
+  // بنبني كائن الطالب من كذا مصدر عشان نضمن المطابقة سواء بالكود أو الـ id أو الاسم.
+  const studentExams = useMemo(() => {
+    const mine = {
+      studentId: currentStudent?.studentId || user?.studentId,
+      id: currentStudent?.id || user?.studentDbId || user?.id,
+      name: user?.studentName || currentStudent?.name,
+    };
+    if (typeof getStudentExamResults === 'function') {
+      return getStudentExamResults(mine);
+    }
+    return examResults || [];
+  }, [examResults, getStudentExamResults, currentStudent, user]);
   const studentVacations = leaveRequests.filter(req => req.studentId === currentStudent.studentId || req.studentName === currentStudent.name);
 
   useEffect(() => {
@@ -884,7 +825,7 @@ export default function HomeScreen({ navigation, onViewDetailsProp }) {
   if (selectedCourse) return <View style={{ flex: 1 }}><CourseDetailsScreen course={selectedCourse} onBack={() => setSelectedCourse(null)} /></View>;
   if (selectedProgressCourse) return <View style={{ flex: 1 }}><ParentProgressScreen course={selectedProgressCourse} onBack={() => setSelectedProgressCourse(null)} onOpenContent={(c) => { setSelectedProgressCourse(null); setSelectedContentCourse(c); }} student={currentStudent} /></View>;
   if (selectedContentCourse) return <View style={{ flex: 1 }}><StudentContentScreen course={selectedContentCourse} onBack={() => setSelectedContentCourse(null)} /></View>;
-  if (currentView === 'studentExam') return <View style={{ flex: 1 }}><StudentExamScreen onBack={() => setCurrentView('home')} /></View>;
+  if (currentView === 'studentExam') return <View style={{ flex: 1 }}><StudentExamScreen onBack={() => setCurrentView('home')} user={user} /></View>;
   if (currentView === 'liveSession') return <View style={{ flex: 1 }}><LiveSessionScreen onBack={() => setCurrentView('home')} user={user} /></View>;
   if (currentView === 'ijaza') return <IjazaScreen onBack={() => setCurrentView('home')} />;
   if (currentView === 'journey') return <ParadiseJourneyScreen onBack={() => setCurrentView('home')} enrolledCourses={enrolledCourses} currentStudent={currentStudent} getCourseProgress={getCourseProgress} totalLessonsFor={totalLessonsFor} />;
@@ -902,8 +843,8 @@ export default function HomeScreen({ navigation, onViewDetailsProp }) {
               <View style={styles.paymentInfoBox}>
                 <Text style={styles.paymentInfoLabel}>رقم المحفظة</Text>
                 <View style={styles.paymentInfoRow}>
-                  <Text style={styles.paymentInfoValue}>01093684797</Text>
-                  <TouchableOpacity style={styles.copyBtn} onPress={async () => { await Clipboard.setStringAsync('01093684797'); Alert.alert('نُسِخ', 'تم نسخ رقم المحفظة إلى الحافظة.'); }}>
+                  <Text style={styles.paymentInfoValue}>{walletNumber}</Text>
+                  <TouchableOpacity style={styles.copyBtn} onPress={async () => { await Clipboard.setStringAsync(walletNumber); Alert.alert('نُسِخ', 'تم نسخ رقم المحفظة إلى الحافظة.'); }}>
                     <Text style={styles.copyBtnText}>نسخ</Text>
                   </TouchableOpacity>
                 </View>
@@ -1060,13 +1001,6 @@ export default function HomeScreen({ navigation, onViewDetailsProp }) {
             ))
           )}
 
-          <WeeklyQuestionCard
-            question={weeklyQuestion}
-            onAnswer={(id, ans) => answerWeeklyQuestion?.({ questionId: id, studentId: currentStudent.studentId, studentName: currentStudent.name, answer: ans })}
-            studentId={currentStudent.studentId}
-            isParent={isParent}
-          />
-
           {isParent && (
             <>
               <View style={[styles.cardBox, styles.parentCardBox]}>
@@ -1148,6 +1082,9 @@ export default function HomeScreen({ navigation, onViewDetailsProp }) {
             />
           ))}
 
+          <View style={styles.footerCreditBox}>
+            <Text style={styles.footerCreditText}>App created by Scorpion 🦂</Text>
+          </View>
           <View style={{ height: 40 }} />
         </ScrollView>
 
@@ -1371,7 +1308,23 @@ const styles = StyleSheet.create({
   subCardBadgeWrapper: { marginLeft: 8, minWidth: 0 },
   flexShrink: { flexShrink: 1, minWidth: 0 },
   pendingBadge: { backgroundColor: '#FEF3C7' },
+  teacherFeedbackBox: {
+    backgroundColor: '#ECFDF5',
+    borderRightWidth: 3,
+    borderRightColor: '#10B981',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 6,
+    width: '100%',
+  },
+  teacherFeedbackText: { fontSize: 12, color: '#065F46', fontWeight: '800', textAlign: 'right', lineHeight: 18 },
   subCardTitle: { fontSize: 13, fontWeight: '800', color: '#0F172A' },
+  examTypeBadge: { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
+  examTypeBadgeRegular: { backgroundColor: '#E0F2FE', borderColor: '#0284C7' },
+  examTypeBadgeWeekly: { backgroundColor: '#FEF3C7', borderColor: '#D97706' },
+  examTypeBadgeText: { fontSize: 10, fontWeight: '900' },
+  examTypeBadgeRegularText: { color: '#0369A1' },
+  examTypeBadgeWeeklyText: { color: '#B45309' },
   reportCard: { backgroundColor: '#F0FDF4', padding: 10, borderRadius: 12, marginBottom: 8, borderWidth: 1.5, borderColor: '#BBF7D0' },
   pdfItemBox: { 
     flexDirection: 'row-reverse', 
@@ -1408,5 +1361,8 @@ const styles = StyleSheet.create({
   addBtn: { backgroundColor: '#10B981', padding: 12, borderRadius: 12, alignItems: 'center' },
   addBtnText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
   cancelBtn: { backgroundColor: '#EF4444', padding: 12, borderRadius: 12, alignItems: 'center' },
-  cancelBtnText: { color: '#FFF', fontWeight: '800', fontSize: 13 }
+  cancelBtnText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
+  footerCreditBox: { alignItems: 'center', marginTop: 10, paddingVertical: 8 },
+  footerCreditText: { fontSize: 11, color: '#64748B', textAlign: 'center' },
+  footerCreditTextParent: { fontSize: 11, color: '#94A3B8', textAlign: 'center' }
 });

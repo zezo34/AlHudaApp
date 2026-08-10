@@ -12,10 +12,15 @@ import {
   Platform 
 } from 'react-native';
 import { CourseContext } from '../context/CourseContext';
+import { AuthContext } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function StudentExamScreen({ onBack }) {
+export default function StudentExamScreen({ onBack, user }) {
   const { exams = [], submitExamResult } = useContext(CourseContext);
+  // لو الواجهة اتنفتحت من غير user prop (زي ما بيحصل في شاشة تفاصيل الكورس)،
+  // ناخد الطالب من AuthContext عشان الإجابة توصل الأدمن باسم الطالب وكوده
+  const { user: contextUser } = useContext(AuthContext) || {};
+  const activeUser = user || contextUser;
   const [answers, setAnswers] = useState({});
 
   const handleSendAnswer = (exam) => {
@@ -29,10 +34,14 @@ export default function StudentExamScreen({ onBack }) {
       submitExamResult({
         examTitle: exam.title,
         question: exam.question,
-        studentName: 'أحمد محمد علي',
+        examId: exam.id,
+        questionId: exam.id,
+        studentId: activeUser?.studentId || activeUser?.id || null,
+        studentName: activeUser?.studentName || activeUser?.name || 'الطالب',
         answer: studentAnswer,
         date: new Date().toLocaleDateString('ar-EG'),
-        status: 'تم التسليم 🟢'
+        status: 'تم التسليم 🟢',
+        isWeekly: Boolean(exam.isWeekly)
       });
     }
 
@@ -65,6 +74,11 @@ export default function StudentExamScreen({ onBack }) {
               <View style={styles.examCardHeader}>
                 <Ionicons name="book-outline" size={20} color="#0F382C" />
                 <Text style={styles.examTitle}>{exam.title}</Text>
+                <View style={[styles.examTypeBadge, exam.isWeekly ? styles.examTypeBadgeWeekly : styles.examTypeBadgeRegular]}>
+                  <Text style={[styles.examTypeBadgeText, exam.isWeekly ? styles.examTypeBadgeWeeklyText : styles.examTypeBadgeRegularText]}>
+                    {exam.isWeekly ? '📅 سؤال الأسبوع' : '📝 اختبار عادي'}
+                  </Text>
+                </View>
               </View>
 
               <Text style={styles.questionText}>❓ السؤال: {exam.question}</Text>
@@ -133,6 +147,11 @@ const styles = StyleSheet.create({
   },
   examCardHeader: { flexDirection: 'row-reverse', alignItems: 'center', marginBottom: 8 },
   examTitle: { fontSize: 16, fontWeight: '900', color: '#0F382C', marginRight: 8, flex: 1, textAlign: 'right' },
+  examTypeBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, borderWidth: 1.5, marginRight: 6 },
+  examTypeBadgeRegular: { backgroundColor: '#E0F2FE', borderColor: '#0284C7' },
+  examTypeBadgeRegularText: { color: '#0369A1', fontSize: 11, fontWeight: '900' },
+  examTypeBadgeWeekly: { backgroundColor: '#FEF3C7', borderColor: '#D97706' },
+  examTypeBadgeWeeklyText: { color: '#B45309', fontSize: 11, fontWeight: '900' },
   questionText: { fontSize: 14, color: '#334155', marginVertical: 8, textAlign: 'right', fontWeight: '700' },
   input: {
     borderWidth: 1.5,

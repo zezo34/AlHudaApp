@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { View, Text, SafeAreaView, ScrollView, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 // افترضت أن هذا هو المسار الصحيح بناءً على هيكلية مشروعك
-import { TEAM_MEETING_URL } from '../constants/meetingLinks';
+import { MEETING_URL } from '../constants/meetingLinks';
+import { AuthContext } from '../context/AuthContext';
 
-const IJAZA_ITEMS = [
+// ⚠️ قائمة احتياطية فقط (تعمل بدون إنترنت قبل أول مزامنة).
+// المصدر الأساسي هو app_settings -> 'ijaza_items' في قاعدة البيانات.
+const FALLBACK_IJAZA_ITEMS = [
   'إجازة حفص عن عاصم',
   'إجازة عاصم براوييه شعبة وحفص',
   'إجازة قالون عن نافع',
@@ -26,16 +29,24 @@ const IJAZA_ITEMS = [
 ];
 
 export default function IjazaScreen({ onBack }) {
-  const handleOpenTeams = async () => {
+  // الإعدادات تُقرأ من الكاش المحلي أولاً (cache-first) ثم تُحدَّث من Supabase.
+  const { appSettings } = useContext(AuthContext);
+  const ijazaItems =
+    Array.isArray(appSettings?.ijaza_items) && appSettings.ijaza_items.length > 0
+      ? appSettings.ijaza_items
+      : FALLBACK_IJAZA_ITEMS;
+  // رابط غرفة الاجتماع: Google Meet من الثابت مباشرة (وليس app_settings)
+  // حتى لا تُفتح بيانات قديمة مخزّنة في الكاش/الداتابيز.
+  const meetingUrl = MEETING_URL;
+
+  const handleOpenMeeting = async () => {
     try {
-      const supported = await Linking.canOpenURL(TEAM_MEETING_URL);
-      if (supported) {
-        await Linking.openURL(TEAM_MEETING_URL);
-      } else {
-        Alert.alert('تنبيه', 'لا يمكن فتح الرابط في الجهاز حالياً.');
-      }
+      // نتخطى canOpenURL عمداً: على أندرويد 11+ بيرجع false بسبب قيود
+      // package visibility حتى لو Google Meet متثبّت. openURL نفسه مش
+      // محجوب — بينضرب الاستثناء بس لو مفيش أي تطبيق يقدر يفتح الرابط.
+      await Linking.openURL(meetingUrl);
     } catch (error) {
-      Alert.alert('خطأ', 'حدث خطأ أثناء فتح رابط الإجازة. حاول مرة أخرى.');
+      Alert.alert('خطأ', 'تعذر فتح الرابط. تأكد من تثبيت تطبيق Google Meet أو وجود متصفح.');
     }
   };
 
@@ -63,16 +74,16 @@ export default function IjazaScreen({ onBack }) {
               ونسأل الله تعالى أن يجعل هذه الإجازة خالصةً لوجهه الكريم، نافعةً لحاملها، وأن يرزقه الإخلاص في تعليم كتابه، وأن يجعله من أهل القرآن الذين هم أهل الله وخاصته.
             </Text>
             {/* الزر الرئيسي باللون الأخضر الداكن */}
-            <TouchableOpacity style={styles.primaryButton} onPress={handleOpenTeams}>
+            <TouchableOpacity style={styles.primaryButton} onPress={handleOpenMeeting}>
               <Text style={styles.primaryButtonText}>افتح غرفة الإجازة مباشرة</Text>
             </TouchableOpacity>
           </View>
 
           <Text style={styles.sectionTitle}>قائمة الإجازات المتاحة</Text>
           <View style={styles.itemsGrid}>
-            {IJAZA_ITEMS.map((item, index) => (
+            {ijazaItems.map((item, index) => (
               /* كروت العناصر باللون الأبيض والحدود الداكنة والترتيب معكوس RTL */
-              <TouchableOpacity key={index} style={styles.itemCard} onPress={handleOpenTeams} activeOpacity={0.8}>
+              <TouchableOpacity key={index} style={styles.itemCard} onPress={handleOpenMeeting} activeOpacity={0.8}>
                 <Text style={styles.itemTitle}>{item}</Text>
               </TouchableOpacity>
             ))}

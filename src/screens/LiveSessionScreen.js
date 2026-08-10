@@ -10,7 +10,7 @@ import {
   Linking,
   AppState 
 } from 'react-native';
-import { TEAM_MEETING_URL } from '../constants/meetingLinks';
+import { MEETING_URL } from '../constants/meetingLinks';
 
 // تسجيل صوتي داخلي
 import { Audio } from 'expo-av';
@@ -25,13 +25,16 @@ import { requestRecitationAnalysis } from '../components/aiEvaluatorService';
 import { AuthContext } from '../context/AuthContext';
 
 export default function LiveSessionScreen({ route, onBack, user }) {
-  const REAL_MEETING_ROOM = TEAM_MEETING_URL;
+  // رابط الاجتماع الافتراضي: Google Meet (من constants/meetingLinks.js).
+  // يُعتمد على الثابت مباشرة (وليس app_settings) حتى لا تُظهر الحقول
+  // بيانات قديمة مخزّنة في الكاش/الداتابيز.
+  const { addStudentReport, addSessionReport } = useContext(AuthContext);
 
-  const [meetingUrl, setMeetingUrl] = useState(REAL_MEETING_ROOM);
+  const [meetingUrl, setMeetingUrl] = useState(MEETING_URL);
   const [isSessionActive, setIsSessionActive] = useState(false);
 
-  // وضع التشغيل: 'teams' أو 'inapp'
-  const [mode, setMode] = useState('teams');
+  // وضع التشغيل: 'external' (Google Meet) أو 'inapp'
+  const [mode, setMode] = useState('external');
 
   // تسجيل صوتي داخلي
   const [isRecording, setIsRecording] = useState(false);
@@ -43,17 +46,16 @@ export default function LiveSessionScreen({ route, onBack, user }) {
   const appState = useRef(AppState.currentState);
   const joinTimeRef = useRef(null);
 
-  const { addStudentReport, addSessionReport } = useContext(AuthContext);
   useEffect(() => {
-    // مراقبة حالة التطبيق (هل المستخدم خرج لـ Teams ورجع ولا لأ)
+    // مراقبة حالة التطبيق (هل المستخدم خرج لـ Google Meet ورجع ولا لأ)
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (
         appState.current.match(/inactive|background/) && 
         nextAppState === 'active' && 
         isSessionActive
       ) {
-        // الطالب رجع للبرنامج بعد ما كان في Teams
-        handleReturnFromTeams();
+        // الطالب رجع للبرنامج بعد ما كان في Google Meet
+        handleReturnFromMeeting();
       }
       appState.current = nextAppState;
     });
@@ -63,8 +65,8 @@ export default function LiveSessionScreen({ route, onBack, user }) {
     };
   }, [isSessionActive]);
 
-  // 1. عند الضغط للذهاب لـ Teams
-  const openInTeamsApp = async () => {
+  // 1. عند الضغط للذهاب لـ Google Meet
+  const openMeeting = async () => {
     if (!meetingUrl.trim() || !meetingUrl.startsWith('http')) {
       Alert.alert('تنبيه ⚠️', 'يرجى إدخال رابط صحيح.');
       return;
@@ -76,13 +78,13 @@ export default function LiveSessionScreen({ route, onBack, user }) {
       setIsSessionActive(true);
 
       // تشغيل إشعار الخلفية
-      await startSessionForegroundNotification('غرفة التسميع المباشرة (Teams)');
+      await startSessionForegroundNotification('غرفة التسميع المباشرة (Google Meet)');
 
-      // فتح رابط Teams
+      // فتح رابط Google Meet
       await Linking.openURL(meetingUrl);
     } catch (error) {
       setIsSessionActive(false);
-      Alert.alert('خطأ ❌', 'تعذر فتح تطبيق Teams.');
+      Alert.alert('خطأ ❌', 'تعذر فتح تطبيق Google Meet.');
     }
   };
 
@@ -205,8 +207,8 @@ export default function LiveSessionScreen({ route, onBack, user }) {
   // -------------------------------------------------------------------------------------
 
   // 2. عند العودة للتطبيق بعد إنهاء الاجتماع
-  const handleReturnFromTeams = async () => {
-    // If mode is inapp we don't use Teams-return flow
+  const handleReturnFromMeeting = async () => {
+    // If mode is inapp we don't use the external-meeting return flow
     if (mode === 'inapp') return;
 
     setIsSessionActive(false);
@@ -222,11 +224,11 @@ export default function LiveSessionScreen({ route, onBack, user }) {
     
     const sessionData = {
       studentName: user?.name || 'طالب جديد',
-      roomName: 'غرفة التسميع الصوتية (Teams)',
+      roomName: 'غرفة التسميع الصوتية (Google Meet)',
       joinTime: joinTime.toLocaleTimeString('ar-EG', formatOptions),
       leaveTime: leaveTime.toLocaleTimeString('ar-EG', formatOptions),
       durationText: `${diffMins} دقيقة`,
-      hasAudioContent: false, // جلسة خارجية في Teams
+      hasAudioContent: false, // جلسة خارجية في Google Meet
       transcriptionText: '',
       mistakesList: [],
       score: 100,
@@ -254,7 +256,7 @@ export default function LiveSessionScreen({ route, onBack, user }) {
       }
  
       try {
-        addStudentReport?.(user?.id || user?.studentId || user?.studentDbId, `تمت جلسة Teams. مدة الجلسة: ${sessionData.durationText}.`);
+        addStudentReport?.(user?.id || user?.studentId || user?.studentDbId, `تمت جلسة Google Meet. مدة الجلسة: ${sessionData.durationText}.`);
       } catch (err) {
         console.error('خطأ في حفظ تقرير الطالب:', err);
       }
@@ -287,7 +289,7 @@ export default function LiveSessionScreen({ route, onBack, user }) {
         <TouchableOpacity onPress={onBack}>
           <Text style={styles.backText}>← رجوع</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>🟦 الغرفة المباشرة</Text>
+        <Text style={styles.headerTitle}>🟢 الغرفة المباشرة</Text>
       </View>
 
       <View style={styles.joinContainer}>
@@ -295,18 +297,18 @@ export default function LiveSessionScreen({ route, onBack, user }) {
         <Text style={styles.title}>الانضمام للغرفة المباشرة</Text>
 
         <View style={{ flexDirection: 'row-reverse', gap: 8, marginBottom: 12 }}>
-          <TouchableOpacity onPress={() => setMode('teams')} style={[styles.modeBtn, mode === 'teams' && styles.modeActive]}>
-            <Text style={{ color: mode === 'teams' ? '#FFF' : '#CBD5E1', fontWeight: '800' }}>Teams (خارجي)</Text>
+          <TouchableOpacity onPress={() => setMode('external')} style={[styles.modeBtn, mode === 'external' && styles.modeActive]}>
+            <Text style={{ color: mode === 'external' ? '#FFF' : '#CBD5E1', fontWeight: '800' }}>Google Meet (خارجي)</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setMode('inapp')} style={[styles.modeBtn, mode === 'inapp' && styles.modeActive]}>
             <Text style={{ color: mode === 'inapp' ? '#FFF' : '#CBD5E1', fontWeight: '800' }}>جلسة داخل التطبيق (بوت)</Text>
           </TouchableOpacity>
         </View>
 
-        {mode === 'teams' ? (
+        {mode === 'external' ? (
           <>
             <Text style={styles.subtitle}>
-              اضغط للدخول فوراً إلى الاجتماع المباشر عبر تطبيق Teams الرسمي.
+              اضغط للدخول فوراً إلى الاجتماع المباشر عبر تطبيق Google Meet.
             </Text>
 
             <View style={styles.inputBox}>
@@ -315,7 +317,7 @@ export default function LiveSessionScreen({ route, onBack, user }) {
                 style={styles.input}
                 value={meetingUrl}
                 onChangeText={setMeetingUrl}
-                placeholder="https://teams.microsoft.com/..."
+                placeholder="https://meet.google.com/..."
                 placeholderTextColor="#94A3B8"
                 autoCapitalize="none"
               />
@@ -323,7 +325,7 @@ export default function LiveSessionScreen({ route, onBack, user }) {
 
             <TouchableOpacity 
               style={[styles.joinBtn, isSessionActive && { backgroundColor: '#F59E0B', borderColor: '#D97706' }]} 
-              onPress={openInTeamsApp}
+              onPress={openMeeting}
             >
               <Text style={styles.joinBtnText}>
                 {isSessionActive ? 'العودة للاجتماع الحالي 🔄' : 'دخول الاجتماع الآن 🚀'}

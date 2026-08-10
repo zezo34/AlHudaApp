@@ -34,13 +34,27 @@ const BACKGROUND_IMAGES = {
 const ExamResultCard = memo(({ result }) => (
   <View style={styles.parentResultCard}>
     <View style={styles.resCardHeader}>
-      <Text style={styles.resExamTitle}>📖 {result.examTitle}</Text>
+      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+        <Text style={styles.resExamTitle}>📖 {result.examTitle}</Text>
+        <View style={[styles.resTypeBadge, result.isWeekly ? styles.resTypeBadgeWeekly : styles.resTypeBadgeRegular]}>
+          <Text style={[styles.resTypeBadgeText, result.isWeekly ? styles.resTypeBadgeWeeklyText : styles.resTypeBadgeRegularText]}>
+            {result.isWeekly ? '📅 سؤال الأسبوع' : '📝 اختبار عادي'}
+          </Text>
+        </View>
+      </View>
       <Text style={styles.resBadge}>{result.status || 'تم الحل 🟢'}</Text>
     </View>
     <Text style={styles.resQuestion}>❓ السؤال: {result.question}</Text>
     <View style={styles.resAnswerBox}>
       <Text style={styles.resAnswerText}>💬 الإجابة: {result.answer}</Text>
     </View>
+    {result.teacherFeedback ? (
+      <View style={{ backgroundColor: '#ECFDF5', borderRightWidth: 3, borderRightColor: '#10B981', borderRadius: 8, padding: 8, marginVertical: 4 }}>
+        <Text style={{ fontSize: 12, color: '#065F46', fontWeight: '800', textAlign: 'right' }}>
+          💬 ملاحظة المعلم: {result.teacherFeedback}
+        </Text>
+      </View>
+    ) : null}
     <Text style={styles.resDate}>📅 {result.date}</Text>
   </View>
 ));
@@ -194,7 +208,7 @@ const CourseCard = memo(({ course, isParent, colorScheme, onSelect, userStars, o
 
 export default function CourseDetailsScreen({ course: propCourse, onBack, navigation, onSelectCourse, onViewProgress, onViewDetailsProp, route }) {
   const { user, studentsDatabase = [], logout, useStarsForDiscount, subscribeUser } = useContext(AuthContext);
-  const { courses, examResults, enrollCourse } = useContext(CourseContext);
+  const { courses, examResults, enrollCourse, getStudentExamResults } = useContext(CourseContext);
 
   const [selectedCategory, setSelectedCategory] = useState('الكل');
   const [currentView, setCurrentView] = useState('home'); 
@@ -227,6 +241,15 @@ export default function CourseDetailsScreen({ course: propCourse, onBack, naviga
   const studentEmoji = isGirl ? '👧' : '👦';
   const reportsList = currentStudent.reports || [];
   const userStars = currentStudent.stars || 0;
+
+  // 📌 نتائج الطالب المسجل فقط — منع تسريب إجابات الطلاب الآخرين إلى ولي الأمر
+  const studentExamResults = (typeof getStudentExamResults === 'function')
+    ? getStudentExamResults({
+        studentId: currentStudent?.studentId || user?.studentId,
+        id: currentStudent?.id || user?.studentDbId || user?.id,
+        name: user?.studentName || currentStudent?.name,
+      })
+    : (examResults || []);
 
 
   useEffect(() => {
@@ -428,7 +451,7 @@ export default function CourseDetailsScreen({ course: propCourse, onBack, naviga
   if (propCourse || routeCourse) return renderSingleCourseProp(propCourse || routeCourse);
 
   if (currentView === 'studentExam') {
-    return <StudentExamScreen onBack={() => setCurrentView('home')} />;
+    return <StudentExamScreen onBack={() => setCurrentView('home')} user={user} />;
   }
 
   return (
@@ -494,12 +517,12 @@ export default function CourseDetailsScreen({ course: propCourse, onBack, naviga
               <View style={styles.parentResultsContainer}>
                 <Text style={styles.parentResultsHeader}>📊 متابعة امتحانات واختبارات الطالب 📑</Text>
                 
-                {(!examResults || examResults.length === 0) ? (
+                {(!studentExamResults || studentExamResults.length === 0) ? (
                   <View style={styles.parentEmptyCard}>
                     <Text style={styles.parentEmptyText}>لم يقم الطالب بحل أي اختبارات بعد. ⏳</Text>
                   </View>
                 ) : (
-                  examResults.map((res, index) => (
+                  studentExamResults.map((res, index) => (
                     <ExamResultCard key={res.id || index.toString()} result={res} />
                   ))
                 )}
@@ -661,6 +684,12 @@ const styles = StyleSheet.create({
   },
   resCardHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', marginBottom: 4 },
   resExamTitle: { fontSize: 14, fontWeight: '800', color: '#0F382C' },
+  resTypeBadge: { marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
+  resTypeBadgeRegular: { backgroundColor: '#E0F2FE', borderColor: '#0284C7' },
+  resTypeBadgeWeekly: { backgroundColor: '#FEF3C7', borderColor: '#D97706' },
+  resTypeBadgeText: { fontSize: 10, fontWeight: '900' },
+  resTypeBadgeRegularText: { color: '#0369A1' },
+  resTypeBadgeWeeklyText: { color: '#B45309' },
   resBadge: { fontSize: 11, color: '#166534', fontWeight: 'bold' },
   resQuestion: { fontSize: 12, color: '#334155', textAlign: 'right', marginVertical: 2 },
   resAnswerBox: { backgroundColor: '#FFF', padding: 8, borderRadius: 8, marginVertical: 4 },

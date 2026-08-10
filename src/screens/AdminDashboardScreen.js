@@ -11,7 +11,11 @@ import {
   FlatList, 
   ScrollView, 
   ImageBackground, 
-  Switch 
+  Switch, 
+  Modal, 
+  StatusBar, 
+  Platform, 
+  Linking 
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { CourseContext } from '../context/CourseContext';
@@ -19,8 +23,20 @@ import { AuthContext } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import InternalPdfViewerModal from '../components/InternalPdfViewerModal';
 import * as Clipboard from 'expo-clipboard';
+import { lessonHasPdf, resolveLessonPdfUri } from '../services/pdfAssetResolver';
+import { MEETING_URL } from '../constants/meetingLinks';
 
 const COURSE_CATEGORIES = ['القرآن الكريم', 'اللغة العربية', 'الدراسات الإسلامية'];
+
+// حالة الإجابة تُعتبر "وصلت وبانتظار مراجعة المعلم" في هذه الحالات:
+// - قيد المراجعة (الافتراضية)
+// - تم التسليم (الحالة اللي بيبعتها الطالب من شاشة الاختبارات)
+// - تلقائياً (إجابات سؤال الأسبوع متعدد الاختيارات اللي اتصححت أوتوماتيك)
+const isPendingExamStatus = (status) => {
+  const s = String(status || '');
+  if (!s) return true;
+  return s.includes('قيد المراجعة') || s.includes('تم التسليم') || s.includes('تلقائياً');
+};
 
 // ==========================================
 // 🟢 مكون كارت الطالب (إدارة النجوم والتقارير)
@@ -38,7 +54,7 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
       Alert.alert("تنبيه 💡", "يرجى كتابة التقرير أولاً!");
       return;
     }
-    onAddReport(st.id || st.studentId, reportText);
+    onAddReport(st.studentId || st.id, reportText);
     setReportText('');
     setIsAddingReport(false);
   };
@@ -50,7 +66,7 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
           {studentEmoji} {st.name}
         </Text>
         <View style={[styles.idBadge, isGirl && styles.girlIdBadge]}>
-          <Text style={[styles.idBadgeText, isGirl && styles.girlIdBadgeText]}>🔑 {st.studentId || st.id}</Text>
+          <Text style={[styles.idBadgeText, isGirl && styles.girlIdBadgeText]}>🔑 {st.studentId || 'بدون كود'}</Text>
         </View>
       </View>
 
@@ -60,13 +76,13 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
         <View style={styles.starsActionBtns}>
           <TouchableOpacity 
             style={styles.addStarBtn} 
-            onPress={() => onAddStars(st.id || st.studentId, 5)}
+            onPress={() => onAddStars(st.studentId || st.id, 5)}
           >
             <Text style={styles.starBtnText}>+5 ⭐</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.removeStarBtn} 
-            onPress={() => onAddStars(st.id || st.studentId, -5)}
+            onPress={() => onAddStars(st.studentId || st.id, -5)}
           >
             <Text style={styles.removeStarBtnText}>-5 ⭐</Text>
           </TouchableOpacity>
@@ -84,7 +100,7 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
           </Text>
         </View>
         <View style={{ flexDirection: 'row-reverse', alignItems: 'center' }}>
-          <TouchableOpacity style={styles.cancelSubBtn} onPress={() => onCancelSubscription?.(st.id || st.studentId)}>
+          <TouchableOpacity style={styles.cancelSubBtn} onPress={() => onCancelSubscription?.(st.studentId || st.id)}>
             <Text style={{ color: '#EF4444', fontWeight: '900', fontSize: 12 }}>إلغاء الاشتراك</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.deleteStudentBtn]} onPress={() => {
@@ -92,7 +108,7 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
               { text: 'إلغاء', style: 'cancel' },
               { text: 'نعم، احذف', style: 'destructive', onPress: () => {
                 try {
-                  const res = onDeleteStudent ? onDeleteStudent(st.id || st.studentId) : null;
+                  const res = onDeleteStudent ? onDeleteStudent(st.studentId || st.id) : null;
                   Alert.alert('تم', (res && res.message) ? res.message : 'تم حذف الحساب.');
                 } catch (e) {
                   console.warn('delete student failed', e);
@@ -117,7 +133,7 @@ const StudentCardItem = ({ st, isGirl, onDeleteReport, onAddReport, onAddStars, 
               <Text style={styles.reportText}>• {rep.text}</Text>
               {rep.date && <Text style={styles.reportDate}>{rep.date}</Text>}
             </View>
-            <TouchableOpacity onPress={() => onDeleteReport(st.id || st.studentId, rep.id)}>
+            <TouchableOpacity onPress={() => onDeleteReport(st.studentId || st.id, rep.id)}>
               <Ionicons name="close-circle" size={20} color="#EF4444" />
             </TouchableOpacity>
           </View>
@@ -166,6 +182,8 @@ const AdminDashboardHeader = memo(({
   pendingCount,
   onApproveAllPending,
   onRejectAllPending,
+  regularExams,
+  onDeleteExam,
 }) => {
   const [newTitle, setNewTitle] = useState('');
   const [newInstructor, setNewInstructor] = useState('');
@@ -334,6 +352,28 @@ const AdminDashboardHeader = memo(({
             </View>
           )}
 
+          {regularExams.length > 0 && (
+            <View style={styles.cardForm}>
+              <View style={styles.cardFormHeader}>
+                <Ionicons name="document-text-outline" size={24} color="#0F382C" />
+                <Text style={styles.cardFormTitle}>الاختبارات المنشورة ({regularExams.length})</Text>
+              </View>
+              {regularExams.map((exam) => (
+                <View key={exam.id || exam.title} style={styles.weeklyQuestionCard}>
+                  <View style={styles.weeklyCardHeader}>
+                    <Text style={[styles.weeklyCardTitle, { flex: 1 }]} numberOfLines={1}>{exam.title || exam.question || 'اختبار'}</Text>
+                    <Text style={styles.weeklyCardStars}>⭐ {exam.rewardStars || exam.stars || 15} نجمة</Text>
+                  </View>
+                  <Text style={styles.weeklyCardQuestion} numberOfLines={2}>❓ {exam.question || exam.title}</Text>
+                  <TouchableOpacity style={styles.deleteWeeklyBtn} onPress={() => onDeleteExam(exam)}>
+                    <Ionicons name="trash-outline" size={16} color="#FFF" />
+                    <Text style={styles.deleteWeeklyBtnText}> حذف الاختبار 🗑️</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
           <View style={styles.cardForm}>
             <View style={styles.cardFormHeader}>
               <Ionicons name="school-outline" size={24} color="#0F382C" />
@@ -423,10 +463,15 @@ export default function AdminDashboardScreen({ onBack }) {
   const [pdfViewerHtml, setPdfViewerHtml] = useState(null);
   const [pdfViewerTitle, setPdfViewerTitle] = useState(null);
 
-  const openPdfInViewer = (item) => {
+  const openPdfInViewer = async (item) => {
     if (!item) return;
+    const uri = await resolveLessonPdfUri(item);
+    if (!uri) {
+      Alert.alert('تنبيه 💡', 'تعذّر تحميل ملف PDF لهذا الدرس.');
+      return;
+    }
     setPdfViewerTitle(item.title || item.pdfName || 'ملف PDF');
-    setPdfViewerUri(item.pdfUri || null);
+    setPdfViewerUri(uri);
     setPdfViewerHtml(item.htmlContent || null);
     setPdfViewerVisible(true);
   };
@@ -438,6 +483,45 @@ export default function AdminDashboardScreen({ onBack }) {
     setPdfViewerTitle(null);
   };
 
+  // 🔒 تغيير كلمة سر الأدمن (Supabase auth.updateUser)
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const closePasswordModal = () => {
+    setPasswordModalVisible(false);
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPassword.trim() || newPassword.length < 6) {
+      Alert.alert('تنبيه 💡', 'كلمة السر يجب أن تكون 6 أحرف على الأقل!');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('تنبيه 💡', 'كلمتا السر غير متطابقتين!');
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const res = await changePassword?.(newPassword);
+      if (res && res.success) {
+        closePasswordModal();
+        Alert.alert('تم التغيير 🔒', res.message || 'تم تغيير كلمة السر بنجاح!');
+      } else {
+        Alert.alert('خطأ ⚠️', (res && res.message) || 'تعذّر تغيير كلمة السر.');
+      }
+    } catch (e) {
+      Alert.alert('خطأ ⚠️', 'حدث خطأ غير متوقع أثناء تغيير كلمة السر.');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   const { 
     courses = [], 
     addCourse, 
@@ -446,7 +530,9 @@ export default function AdminDashboardScreen({ onBack }) {
     deleteCourseModule,
     addCourseLesson,
     deleteCourseLesson,
+    exams = [],
     addExam, 
+    deleteExam,
     weeklyQuestion: activeWeeklyQuestion = null, 
     createWeeklyQuestion: addWeeklyQuestion,    
     deleteWeeklyQuestion: removeWeeklyQuestion, 
@@ -458,7 +544,9 @@ export default function AdminDashboardScreen({ onBack }) {
   } = useContext(CourseContext) || {};
   
   const { 
+    user,
     logout, 
+    changePassword,
     studentsDatabase = [], 
     addStudent, 
     addStudentReport, 
@@ -474,8 +562,27 @@ export default function AdminDashboardScreen({ onBack }) {
     deleteStudent,
     paymentRequests = [],
     approvePaymentRequest,
-    rejectPaymentRequest
+    rejectPaymentRequest,
+    appSettings
   } = useContext(AuthContext) || {};
+
+  // رقم المحفظة يُقرأ من app_settings (wallet_number) مع fallback للرقم القديم.
+  const walletNumber = appSettings?.wallet_number || '01093684797';
+
+  // رابط غرفة الاجتماع المباشر (Google Meet) — من الثابت مباشرة (وليس
+  // app_settings) حتى لا تُفتح بيانات قديمة مخزّنة في الكاش/الداتابيز.
+  const meetingUrl = MEETING_URL;
+
+  const handleOpenMeeting = async () => {
+    try {
+      // نتخطى canOpenURL عمداً: على أندرويد 11+ بيرجع false بسبب قيود
+      // package visibility حتى لو Google Meet متثبّت. openURL نفسه مش
+      // محجوب — بينضرب الاستثناء بس لو مفيش أي تطبيق يقدر يفتح الرابط.
+      await Linking.openURL(meetingUrl);
+    } catch (error) {
+      Alert.alert('خطأ ⚠️', 'تعذر فتح الرابط. تأكد من تثبيت تطبيق Google Meet أو وجود متصفح.');
+    }
+  };
 
   const [activeTab, setActiveTab] = useState('courses'); 
   const [gradingFeedbacks, setGradingFeedbacks] = useState({});
@@ -719,6 +826,18 @@ export default function AdminDashboardScreen({ onBack }) {
     ]);
   };
 
+  // 🗑️ حذف اختبار عادي: يُحذف من الكاش المحلي ومن جدول exams في Supabase
+  const handleDeleteExam = (exam) => {
+    const examLabel = exam?.title || exam?.question || 'هذا الاختبار';
+    Alert.alert("حذف الاختبار 🗑️", `هل أنت متأكد من حذف "${examLabel}" نهائياً؟ سيُحذف من الداتابيز وجميع الأجهزة.`, [
+      { text: "تراجع ❌", style: "cancel" },
+      { text: "حذف نهائي 🗑️", style: "destructive", onPress: () => {
+        deleteExam?.(exam.id);
+        Alert.alert('تم الحذف ✅', 'تم حذف الاختبار من الداتابيز.');
+      } }
+    ]);
+  };
+
   const handleGradeAnswer = (res, gradeStatus) => {
     try {
       const resId = res?.id || res?.submissionId;
@@ -728,7 +847,7 @@ export default function AdminDashboardScreen({ onBack }) {
       }
 
       const currentStatus = res?.status || '';
-      if (currentStatus && !currentStatus.includes('قيد المراجعة')) {
+      if (currentStatus && !isPendingExamStatus(currentStatus)) {
         Alert.alert('تنبيه ⚠️', 'تمت مراجعة هذه الإجابة مسبقاً ولا يمكن تعديلها مرة أخرى.');
         return;
       }
@@ -813,8 +932,9 @@ export default function AdminDashboardScreen({ onBack }) {
     return examResults.filter(res => {
       const resId = res?.id || res?.submissionId;
       if (hiddenExamResultIds.includes(resId)) return false;
-      const status = (res?.status || '').toString();
-      return status.includes('قيد المراجعة') || status === '' || !status;
+      // اعرض كل الإجابات اللي وصلت ومازالت بانتظار مراجعة المعلم
+      // (شاملة "تم التسليم 🟢" اللي بيبعثها الطالب — كانت بتترشّح وتختفي قبل كده)
+      return isPendingExamStatus(res?.status);
     });
   }, [examResults, hiddenExamResultIds]);
 
@@ -827,6 +947,11 @@ export default function AdminDashboardScreen({ onBack }) {
   const pendingCount = useMemo(() => {
     return filteredLeaveRequests.length;
   }, [filteredLeaveRequests]);
+
+  // الاختبارات العادية المنشورة (بدون سؤال الأسبوع) لعرضها مع زر الحذف
+  const regularExams = useMemo(() => {
+    return (exams || []).filter((e) => !e.isWeekly);
+  }, [exams]);
 
   const activeData = useMemo(() => {
     if (activeTab === 'courses') return courses;
@@ -848,8 +973,10 @@ export default function AdminDashboardScreen({ onBack }) {
       pendingCount={pendingCount}
       onApproveAllPending={handleApproveAllPending}
       onRejectAllPending={handleRejectAllPending}
+      regularExams={regularExams}
+      onDeleteExam={handleDeleteExam}
     />
-  ), [activeTab, addCourse, addStudent, addExam, addWeeklyQuestion, activeWeeklyQuestion, handleDeleteWeeklyQuestion, pendingCount, handleApproveAllPending, handleRejectAllPending]);
+  ), [activeTab, addCourse, addStudent, addExam, addWeeklyQuestion, activeWeeklyQuestion, handleDeleteWeeklyQuestion, pendingCount, handleApproveAllPending, handleRejectAllPending, regularExams, handleDeleteExam]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -862,34 +989,113 @@ export default function AdminDashboardScreen({ onBack }) {
             pdfHtmlContent={pdfViewerHtml}
             pdfTitle={pdfViewerTitle}
           />
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.logoutBtn} onPress={onBack}>
-              <Ionicons name="arrow-back" size={24} color="#FFF" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>لوحة المعلم محمود ساطور</Text>
-            <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-              <Ionicons name="log-out-outline" size={24} color="#FFF8E1" />
-            </TouchableOpacity>
-          </View>
+
+          <Modal
+            visible={passwordModalVisible}
+            animationType="slide"
+            transparent
+            onRequestClose={closePasswordModal}
+          >
+            <View style={styles.passwordModalBackdrop}>
+              <View style={styles.passwordModalBox}>
+                <Text style={styles.passwordModalTitle}>🔒 تغيير كلمة السر</Text>
+                <Text style={styles.passwordModalHint}>
+                  ستُغيّر كلمة سر حساب الأدمن على Supabase مباشرة.
+                </Text>
+
+                <TextInput
+                  style={styles.passwordModalInput}
+                  placeholder="كلمة السر الجديدة (6 أحرف على الأقل)"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry={!showNewPassword}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={styles.passwordModalInput}
+                  placeholder="تأكيد كلمة السر الجديدة"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry={!showConfirmPassword}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  autoCapitalize="none"
+                />
+
+                <View style={styles.passwordShowRow}>
+                  <TouchableOpacity onPress={() => setShowNewPassword((v) => !v)}>
+                    <Text style={styles.passwordShowText}>{showNewPassword ? 'إخفاء الجديدة 🙈' : 'إظهار الجديدة 👁️'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowConfirmPassword((v) => !v)}>
+                    <Text style={styles.passwordShowText}>{showConfirmPassword ? 'إخفاء التأكيد 🙈' : 'إظهار التأكيد 👁️'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.passwordModalActions}>
+                  <TouchableOpacity
+                    style={[styles.addBtn, { flex: 1, marginRight: 6 }]}
+                    onPress={handleChangePassword}
+                    disabled={changingPassword}
+                  >
+                    <Text style={styles.addBtnText}>
+                      {changingPassword ? 'جاري الحفظ... ⏳' : 'حفظ كلمة السر الجديدة 🔒'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.cancelBtn, { flex: 1, marginLeft: 6 }]}
+                    onPress={closePasswordModal}
+                    disabled={changingPassword}
+                  >
+                    <Text style={styles.cancelBtnText}>إلغاء</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          <View style={styles.topBar}>
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.logoutBtn} onPress={onBack}>
+                <Ionicons name="arrow-back" size={24} color="#FFF" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle} numberOfLines={1}>لوحة {user?.name || 'الإدارة'}</Text>
+              <View style={{ flexDirection: 'row-reverse', alignItems: 'center' }}>
+                <TouchableOpacity style={styles.meetingHeaderBtn} onPress={handleOpenMeeting}>
+                  <Ionicons name="videocam" size={20} color="#D4AF37" />
+                  <Text style={styles.meetingHeaderBtnText}>Google Meet</Text>
+                </TouchableOpacity>
+                {user?.id !== 'admin-local' && (
+                  <TouchableOpacity style={styles.logoutBtn} onPress={() => setPasswordModalVisible(true)}>
+                    <Ionicons name="key-outline" size={22} color="#FFF8E1" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+                  <Ionicons name="log-out-outline" size={24} color="#FFF8E1" />
+                </TouchableOpacity>
+              </View>
+            </View>
 
           <View style={styles.navTabs}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row-reverse' }}>
-              {[
-                { key: 'courses', label: '📚 الدورات', style: styles.activeTabCourses },
-                { key: 'students', label: '👥 الطلاب والتقارير', style: styles.activeTabStudents },
-                { key: 'exams', label: `📝 الاختبارات (${filteredExamResults.length})`, style: styles.activeTabExams },
-                { key: 'leaves', label: `🌴 الإجازات (${pendingCount})`, style: styles.activeTabLeaves },
-                { key: 'subscription', label: '💳 الاشتراك', style: styles.activeTabCourses },
-              ].map(tab => (
-                <TouchableOpacity
-                  key={tab.key}
-                  style={[styles.tab, activeTab === tab.key && tab.style]}
-                  onPress={() => setActiveTab(tab.key)}
-                >
-                  <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}</Text>
-                </TouchableOpacity>
-              ))}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navTabsContent}>
+              <View style={styles.navTabsRow}>
+                {[
+                  { key: 'courses', label: '📚 الدورات', style: styles.activeTabCourses },
+                  { key: 'students', label: '👥 الطلاب والتقارير', style: styles.activeTabStudents },
+                  { key: 'exams', label: `📝 الاختبارات (${filteredExamResults.length})`, style: styles.activeTabExams },
+                  { key: 'leaves', label: `🌴 الإجازات (${pendingCount})`, style: styles.activeTabLeaves },
+                  { key: 'subscription', label: '💳 الاشتراك', style: styles.activeTabCourses },
+                ].map(tab => (
+                  <TouchableOpacity
+                    key={tab.key}
+                    style={[styles.tab, activeTab === tab.key && tab.style]}
+                    onPress={() => setActiveTab(tab.key)}
+                  >
+                    <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </ScrollView>
+          </View>
           </View>
 
           {activeTab === 'subscription' ? (
@@ -933,7 +1139,7 @@ export default function AdminDashboardScreen({ onBack }) {
                               <Text style={{ color: '#94A3B8', fontSize: 11 }}>الحالة: {getPaymentStatusLabel(req.status)}</Text>
                           </View>
                           <View style={{ alignItems: 'flex-start' }}>
-                            <TouchableOpacity style={[styles.smallAddBtn, { backgroundColor: '#0F382C', marginBottom: 6 }]} onPress={async () => { await Clipboard.setStringAsync('01093684797'); Alert.alert('نُسِخ', 'تم نسخ رقم المحفظة 01093684797 إلى الحافظة.'); }}>
+                            <TouchableOpacity style={[styles.smallAddBtn, { backgroundColor: '#0F382C', marginBottom: 6 }]} onPress={async () => { await Clipboard.setStringAsync(walletNumber); Alert.alert('نُسِخ', 'تم نسخ رقم المحفظة إلى الحافظة.'); }}>
                               <Text style={styles.smallAddBtnText}>نسخ رقم المحفظة</Text>
                             </TouchableOpacity>
                               {(req.status === 'pending' || req.status === 'قيد المراجعة ⏳') && (
@@ -966,6 +1172,9 @@ export default function AdminDashboardScreen({ onBack }) {
               data={activeData}
               keyExtractor={(item, index) => (item?.id || item?.studentId || item?.submissionId || index).toString()}
               ListHeaderComponent={renderHeaderComponent}
+              ListFooterComponent={
+                <Text style={styles.footerCreditText}>App created by Scorpion 🦂</Text>
+              }
               contentContainerStyle={styles.listContainer}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
@@ -997,7 +1206,7 @@ export default function AdminDashboardScreen({ onBack }) {
                                   </View>
                                   {(unit.lessons || []).map((lesson, lIndex) => {
                                     const lessonTitle = typeof lesson === 'string' ? lesson : (lesson.title || lesson.pdfName || 'درس بدون عنوان');
-                                    const hasPdf = lesson && typeof lesson === 'object' && lesson.pdfUri;
+                                    const hasPdf = lessonHasPdf(lesson);
                                     return (
                                       <View key={`${unit.id}-${lIndex}`} style={{ marginBottom: 6 }}>
                                         <View style={styles.lessonRowAdmin}>
@@ -1115,9 +1324,23 @@ export default function AdminDashboardScreen({ onBack }) {
 
                 if (activeTab === 'exams') {
                   const resId = item?.id || item?.submissionId;
+                  const isWeeklyAnswer = Boolean(
+                    item?.isWeekly ||
+                    (activeWeeklyQuestion &&
+                      (item?.questionId === activeWeeklyQuestion.id ||
+                        item?.examTitle === activeWeeklyQuestion.title))
+                  );
                   return (
                     <View style={styles.resultItemCard}>
-                      <Text style={styles.resultStudentName}>👤 {item.studentName || 'طالب'}</Text>
+                      <View style={styles.resultCardTopRow}>
+                        <Text style={styles.resultStudentName}>👤 {item.studentName || 'طالب'}</Text>
+                        <View style={[styles.examTypeBadge, isWeeklyAnswer ? styles.examTypeBadgeWeekly : styles.examTypeBadgeRegular]}>
+                          <Text style={[styles.examTypeBadgeText, isWeeklyAnswer ? styles.examTypeBadgeWeeklyText : styles.examTypeBadgeRegularText]}>
+                            {isWeeklyAnswer ? '📅 سؤال الأسبوع' : '📝 اختبار عادي'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.resultStatusText}>الحالة: {item.status || 'قيد المراجعة ⏳'}</Text>
                       <Text style={styles.resultQuestionText}>❓ {item.question || item.examTitle}</Text>
                       <View style={styles.resultAnswerBox}>
                         <Text style={styles.resultAnswerText}>📝 الإجابة: {item.answer || item.studentAnswer}</Text>
@@ -1179,10 +1402,39 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F382C' },
   backgroundImage: { flex: 1, width: '100%', height: '100%' },
   overlay: { flex: 1, backgroundColor: 'rgba(15, 56, 44, 0.35)' },
-  header: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: 'rgba(15, 56, 44, 0.75)' },
-  headerTitle: { fontSize: 17, fontWeight: 'bold', color: '#FFF8E1' },
+  topBar: {
+    backgroundColor: '#0F382C',
+    zIndex: 10,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  header: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: Platform.select({ android: (StatusBar.currentHeight || 24) + 8, default: 14 }),
+    paddingBottom: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#0F382C',
+  },
+  headerTitle: { fontSize: 17, fontWeight: 'bold', color: '#FFF8E1', flex: 1, textAlign: 'center', marginHorizontal: 8 },
   logoutBtn: { padding: 4 },
-  navTabs: { backgroundColor: 'rgba(15, 56, 44, 0.8)', paddingVertical: 8 },
+  meetingHeaderBtn: { flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: '#166534', borderColor: '#34A853', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginHorizontal: 4 },
+  meetingHeaderBtnText: { color: '#D4AF37', fontWeight: '800', fontSize: 12, marginLeft: 4 },
+  passwordModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 20 },
+  passwordModalBox: { backgroundColor: '#FFFFFF', borderRadius: 14, padding: 18 },
+  passwordModalTitle: { fontSize: 16, fontWeight: 'bold', color: '#0F382C', textAlign: 'center', marginBottom: 6 },
+  passwordModalHint: { fontSize: 12, color: '#64748B', textAlign: 'center', marginBottom: 12 },
+  passwordModalInput: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 10, fontSize: 13, textAlign: 'right', marginBottom: 10 },
+  passwordShowRow: { flexDirection: 'row-reverse', marginBottom: 10 },
+  passwordShowText: { color: '#2563EB', fontSize: 12, fontWeight: '700' },
+  passwordModalActions: { flexDirection: 'row-reverse', marginTop: 6 },
+  navTabs: { backgroundColor: '#0F382C', paddingTop: 4, paddingBottom: 10 },
+  navTabsContent: { paddingHorizontal: 10, minWidth: '100%' },
+  navTabsRow: { flexDirection: 'row-reverse', alignItems: 'center', minWidth: '100%' },
   tab: { paddingHorizontal: 12, paddingVertical: 8, marginHorizontal: 4, borderRadius: 8, backgroundColor: 'rgba(255, 255, 255, 0.2)' },
   tabText: { color: '#FFF8E1', fontWeight: 'bold', fontSize: 13 },
   activeTabCourses: { backgroundColor: '#D4AF37' },
@@ -1247,6 +1499,13 @@ const styles = StyleSheet.create({
   resultItemCard: { backgroundColor: 'rgba(255, 255, 255, 0.95)', borderRadius: 8, padding: 12, marginBottom: 10 },
   resultHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   resultStudentName: { fontSize: 14, fontWeight: 'bold', color: '#0F382C', textAlign: 'right' },
+  resultCardTopRow: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  resultStatusText: { fontSize: 11, color: '#166534', textAlign: 'right', marginBottom: 2 },
+  examTypeBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, borderWidth: 1.5 },
+  examTypeBadgeRegular: { backgroundColor: '#E0F2FE', borderColor: '#0284C7' },
+  examTypeBadgeRegularText: { color: '#0369A1', fontSize: 11, fontWeight: '900' },
+  examTypeBadgeWeekly: { backgroundColor: '#FEF3C7', borderColor: '#D97706' },
+  examTypeBadgeWeeklyText: { color: '#B45309', fontSize: 11, fontWeight: '900' },
   resultQuestionText: { fontSize: 12, color: '#334155', textAlign: 'right', marginVertical: 4 },
   resultAnswerBox: { backgroundColor: '#F8FAFC', padding: 8, borderRadius: 6, marginBottom: 8 },
   resultAnswerText: { fontSize: 12, color: '#0F172A', textAlign: 'right' },
@@ -1300,4 +1559,5 @@ const styles = StyleSheet.create({
   categoryChipText: { color: '#0F172A', fontSize: 12, fontWeight: '700' },
   categoryChipTextActive: { color: '#FFF' },
   emptyText: { color: '#64748B', fontSize: 12, textAlign: 'right', marginBottom: 8 },
+  footerCreditText: { color: '#94A3B8', fontSize: 11, textAlign: 'center', marginTop: 8, marginBottom: 4 },
 });
